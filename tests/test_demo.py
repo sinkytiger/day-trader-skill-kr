@@ -32,6 +32,8 @@ class Demo(unittest.TestCase):
         for n in range(1, 9):
             self.assertIn("== %d/8 " % n, text)
         self.assertIn("PASS  #1 매수 SYN001", text)
+        self.assertIn("== 한 번에", text)
+        self.assertIn("1. PASS      SYN001 합성종목  신호 10:15 (방금)", text)
         self.assertIn("저장된 파일", text)
         self.assertNotIn("토스증권. 후보", text)
         for name in ("watchlist", "entry", "plan", "timemachine", "orders", "lab"):

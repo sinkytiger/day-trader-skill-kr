@@ -213,7 +213,12 @@ def demo(folder, replays, show):
                                          "--now", "2026-10-29 08:00", "--write"], show)
 
     show("")
-    show("8단계를 모두 돌렸습니다. 만든 파일: %s" % os.path.join(os.path.abspath(folder), "trader-kr"))
+    show("== 한 번에: 같은 자료, 10:15:30 에 \"오늘 장 봐 줘\" (/trader-kr-today) ==")
+    run(folder, "trader-kr-today/today.py", ["--offline", "bars", "--status", "status.json", "--now", NOW,
+                                             "--replays", str(min(replays, 2000))], show)
+
+    show("")
+    show("8단계와 한 번에 보기를 모두 돌렸습니다. 만든 파일: %s" % os.path.join(os.path.abspath(folder), "trader-kr"))
     show("주문은 보내지 않았습니다. 이 팩에는 주문 도구가 없습니다.")
     show("실제 시세로 돌리려면: python krcommon/keys.py toss, python krcommon/doctor.py 뒤에 Claude 에게 스킬을 부탁합니다.")
     return steps

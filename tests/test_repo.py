@@ -7,10 +7,10 @@ from _load import ROOT
 from krcommon import krx
 
 SKILLS = ["trader-kr-scanner", "trader-kr-entry", "trader-kr-exit", "trader-kr-timemachine", "trader-kr-budget",
-          "trader-kr-risk", "trader-kr-journal", "trader-kr-lab"]
+          "trader-kr-risk", "trader-kr-journal", "trader-kr-lab", "trader-kr-today"]
 SCRIPTS = {"trader-kr-scanner": "scan.py", "trader-kr-entry": "entry.py", "trader-kr-exit": "exit.py",
            "trader-kr-timemachine": "timemachine.py", "trader-kr-budget": "size.py", "trader-kr-risk": "check.py",
-           "trader-kr-journal": "journal.py", "trader-kr-lab": "lab.py"}
+           "trader-kr-journal": "journal.py", "trader-kr-lab": "lab.py", "trader-kr-today": "today.py"}
 
 
 def frontmatter(path):
@@ -36,7 +36,7 @@ def code_files():
 
 
 class Repo(unittest.TestCase):
-    def test_eight_skill_folders(self):
+    def test_skill_folders(self):
         found = sorted(d for d in os.listdir(ROOT) if os.path.isfile(os.path.join(ROOT, d, "SKILL.md")))
         self.assertEqual(found, sorted(SKILLS))
 

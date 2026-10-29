@@ -2,10 +2,10 @@
 
 [![tests](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml/badge.svg)](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml)
 
-국내 주식(코스피·코스닥) 단타용 Claude 스킬 8종. 차트를 스캔하고, 진입 순간을 알려 주고, 손절가와 목표가를
+국내 주식(코스피·코스닥) 단타용 Claude 스킬 9종. 차트를 스캔하고, 진입 순간을 알려 주고, 손절가와 목표가를
 먼저 정하고, 남은 장을 10,000번 다시 돌려 보고, 최대 손실에 맞춰 수량을 정하고, 한도를 넘는 주문을 막는다. 그리고
 실제 거래를 일지에 적어 계획을 지켰는지 재고, 여러 규칙을 앞 기간에서 골라 뒤 기간에서 확인해 비용을 내고도 남는
-규칙이 있는지 가린다.
+규칙이 있는지 가린다. "오늘 장 봐 줘" 한마디면 지금 시각에 맞춰 이 단계들을 이어서 돌리고 한 장으로 보여 준다.
 
 [Jake Schincariol 의 day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT, 미국 주식 전용)을
 국내 시장 규칙과 토스증권 Open API 시세로 옮겼다. 계산은 파이썬이 하고 Claude 는 결정하지 않는다는 원본의 원칙은
@@ -16,10 +16,11 @@
 
 > 교육과 도구일 뿐 투자 권유가 아니다 (not financial advice). 단타를 하는 사람 대부분은 돈을 잃는다.
 
-## 스킬 8종
+## 스킬 9종
 
 | 명령 | 이름 | 하는 일 |
 | --- | --- | --- |
+| `/trader-kr-today` | 오늘 장 한 번에 | 지금 시각에 맞춰 아래 스킬을 이어서 돌린다. 장중에는 후보마다 신호, 손절·목표, 수량, PASS / BLOCK, 재생을 한 덩어리로 |
 | `/trader-kr-scanner` | 차트 스캐너 | 거래대금 상위 100 (또는 전 종목) 에서 시가 범위 돌파, 20일 신고가, 깃발, 과매도 반등을 찾는다 |
 | `/trader-kr-entry` | 진입 타이머 | 5분봉이 시가 범위 고가 위에서 끝나는 순간을 알려 준다 |
 | `/trader-kr-exit` | 청산 계획 | 사기 전에 손절가와 목표가를 호가 단위로 정하고 비용 뺀 손익비를 보여 준다 |
@@ -37,7 +38,8 @@
 모든 결과는 프로젝트의 `trader-kr/` 폴더에 쌓이고, 다음 스킬이 앞 스킬의 파일을 읽는다.
 
 ```
-scanner -> entry -> exit -> timemachine -> budget -> risk      (거래 하나)
+today = scanner -> entry -> exit -> budget -> risk -> timemachine  (한마디로, 후보 여러 개)
+scanner -> entry -> exit -> timemachine -> budget -> risk      (거래 하나, 단계별로)
 journal: open / close / report                                 (산 뒤, 판 뒤, 주말마다)
 lab: run                                                       (규칙을 바꾸기 전에)
 ```
@@ -50,7 +52,7 @@ cd day-trader-skill-kr
 python krcommon/demo.py
 ```
 
-합성 종목 3개(실제 시세 아님)로 8단계를 차례로 돌린다. 각 스킬이 쓰는 스크립트를 오프라인 옵션으로 그대로 부르고,
+합성 종목 3개(실제 시세 아님)로 8단계를 차례로 돌리고, 끝에 같은 자료로 `/trader-kr-today` 한 번에 보기를 보여 준다. 각 스킬이 쓰는 스크립트를 오프라인 옵션으로 그대로 부르고,
 돌린 명령과 출력을 단계마다 보여 준다. 5초쯤 걸리고, 결과 파일은 `trader-kr-demo/trader-kr/` 에 남는다. 네트워크를
 쓰지 않고 실제 키도 읽지 않는다: 스크립트의 홈 폴더를 데모 폴더로 바꾸고 키 환경변수를 지운 채 돌린다. 플러그인으로
 설치했다면 Claude 에게 "데모 돌려 줘" 라고 하면 된다.
@@ -77,7 +79,7 @@ Claude Code 플러그인으로:
 /plugin install day-trader-skill-kr@day-trader-skill-kr
 ```
 
-2026-10-29 에 Claude Code 2.1.309 의 빈 설정에서 위 두 줄로 설치해 스킬 8개가 올라오는 것을 확인했다 (항상 드는
+2026-10-29 에 Claude Code 2.1.309 의 빈 설정에서 위 두 줄로 설치해 스킬이 올라오는 것을 확인했다 (항상 드는
 토큰 약 1,060). 또는 폴더를 복사한다. 스크립트가 공통 모듈 `krcommon/` 을 옆 폴더에서 찾으므로 같이 복사해야 한다.
 
 ```bash
@@ -227,6 +229,7 @@ trader-kr-budget/       SKILL.md, size.py, config.example.json
 trader-kr-risk/         SKILL.md, check.py
 trader-kr-journal/      SKILL.md, journal.py
 trader-kr-lab/          SKILL.md, lab.py
+trader-kr-today/        SKILL.md, today.py (다른 스킬을 시각에 맞춰 이어서 부름)
 krcommon/               krx.py (시장 규칙), toss.py (토스증권 시세), bars.py (1분봉 캐시, 5분봉), data.py,
                         dart.py (그날 공시), krxdata.py (KRX 공식 일봉), keys.py (키 등록), liquidity.py (호가창),
                         doctor.py (연결 점검), demo.py (키 없이 8단계), synth.py (합성 1분봉)
@@ -236,9 +239,10 @@ tests/                  unittest, 가짜 토스증권 서버
 
 ## In English
 
-A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): eight Claude skills
+A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): nine Claude skills
 for KOSPI/KOSDAQ day trades (scanner, entry timer, exit planner, Monte Carlo time machine, position sizing, risk check,
-a trade journal that measures plan adherence, and a walk-forward strategy lab with Holm-corrected tests),
+a trade journal that measures plan adherence, a walk-forward strategy lab with Holm-corrected tests, and a
+one-call "today" skill that runs the right steps for the time of day and prints one card per candidate),
 reading Toss Securities Open API market data. It adds KRX session hours (continuous trading 09:00 to 15:20), tick sizes,
 the ±30% price limits, transaction tax and fees in every loss and reward:risk figure, and blocks on exchange warnings,
 volatility interruptions and trading halts. Phase 1 places no orders and calls no account or order endpoints. Tests run
