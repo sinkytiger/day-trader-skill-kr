@@ -19,7 +19,9 @@
 
 universe  토스증권 마켓별 전체 종목 (KOSPI, KOSDAQ), 주식만, 보통주만 (--include-preferred).
 
-daily     장 전 일봉 종가 스캔 (토스증권 일봉 60개). 유동성: 마지막 종가 >= --min-price
+daily     장 전 일봉 종가 스캔 (일봉 60개). KRX_API_KEY 가 있으면 KRX Open API 일별매매정보의 한국거래소
+          공식 종가를 쓴다 (하루 두 번 호출로 전 종목, 매일 08:00 에 전 거래일 갱신). 없으면 토스증권
+          일봉을 쓰고 경고한다: 토스 일봉 종가는 KRX+NXT 통합이라 20:00 NXT 마지막 가격이다. 유동성: 마지막 종가 >= --min-price
           (1,000원), 거래대금(종가 x 거래량) >= --min-value (10억원). 셋업 (종가만으로):
             breakout_20d     마지막 종가가 그 전 20일 종가보다 모두 높음
             bull_flag        마지막 5일 전 10일 동안 10% 넘게 오르고, 마지막 5일 종가가 5% 범위 안
@@ -44,7 +46,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
-from krcommon import bars as kbars, data, krx, toss  # noqa: E402
+from krcommon import bars as kbars, data, krx, krxdata, toss  # noqa: E402
 
 STEP = 300
 MIN_DAILY_BARS = 30
@@ -131,7 +133,7 @@ def scan_daily(series, symbols, now_kst, min_price, min_value):
             counts["short"] += 1
             continue
         last = bars[-1]
-        value = float(last["c"]) * float(last.get("v") or 0)
+        value = float(last["value"]) if last.get("value") is not None else float(last["c"]) * float(last.get("v") or 0)
         if float(last["c"]) < min_price or value < min_value:
             counts["illiquid"] += 1
             continue
@@ -238,6 +240,16 @@ def candidates(a, duration):
         rows = doc.get("hits", doc.get("symbols", [])) if isinstance(doc, dict) else doc
         syms = [krx.norm_symbol(r["symbol"] if isinstance(r, dict) else r) for r in rows]
         how = "%s 의 %d종목" % (a.watchlist, len(syms))
+    elif a.universe and getattr(a, "krx_key", None):
+        day = krx.kst_now().date() - datetime.timedelta(days=1)
+        syms = []
+        for _ in range(10):                       # 가장 최근 발표된 거래일의 KRX 표
+            if day.weekday() < 5 and krxdata.published(day, krx.kst_now()):
+                syms = krxdata.all_symbols(day, a.krx_key)
+                if syms:
+                    break
+            day -= datetime.timedelta(days=1)
+        how = "KRX %s 일별매매정보 전 종목 %d개" % (day.isoformat(), len(syms))
     elif a.universe:
         doc = krx.read_json(a.universe_file, "종목 목록 (먼저 scan.py universe)")
         syms = [r["symbol"] for r in doc.get("stocks", [])]
@@ -296,31 +308,55 @@ def cmd_daily(a):
         names, how = {}, "오프라인 %d종목" % len(syms)
         series = {s: load_daily_offline(a.offline, s) for s in syms}
     else:
+        source = a.source
+        a.krx_key = krxdata.api_key() if source in ("auto", "krx") else None
+        if source == "krx" and not a.krx_key:
+            raise ScanError("KRX_API_KEY 가 없습니다. openapi.krx.co.kr 에서 키를 받아 환경변수 KRX_API_KEY 나 "
+                            "~/.krx/api_key 파일에 넣으세요 (README 의 KRX Open API 준비)")
         syms, names, how = candidates(a, "1d")
-        progress(a, "일봉을 받습니다: %s ..." % how)
         series = {}
-        for i, s in enumerate(syms):
+        if a.krx_key:
+            src_word = "KRX 공식 일봉 (한국거래소 종가)"
+            progress(a, "KRX 일별매매정보를 받습니다: %s (캐시에 있는 날은 건너뜀)..." % how)
             try:
-                rows, _ = data.client().candles(s, "1d", 60)
-                series[s] = [{"date": krx.parse_iso(r["timestamp"]).date().isoformat(), "c": float(r["closePrice"]),
-                              "v": float(r.get("volume") or 0)} for r in rows]
-            except toss.TossError as e:
-                progress(a, "  %s: %s" % (s, e))
-            if (i + 1) % 100 == 0:
-                progress(a, "  %d / %d" % (i + 1, len(syms)))
+                series, info = krxdata.daily_series(syms, now.date(), 60, a.krx_key, now_kst=now,
+                                                    progress=lambda m: progress(a, m))
+            except krxdata.KrxDataError as e:
+                raise ScanError(str(e))
+            for s, n in info["names"].items():
+                names.setdefault(s, n)
+        else:
+            src_word = "토스증권 일봉"
+            progress(a, "일봉을 받습니다: %s ..." % how)
+            progress(a, "참고: KRX_API_KEY 가 없어 토스증권 일봉을 씁니다. 토스 일봉 종가는 KRX+NXT 통합이라 20:00 NXT "
+                        "애프터마켓 마지막 가격이고, KRX 종가와 다를 수 있습니다.")
+            for i, s in enumerate(syms):
+                try:
+                    rows, _ = data.client().candles(s, "1d", 60)
+                    series[s] = [{"date": krx.parse_iso(r["timestamp"]).date().isoformat(),
+                                  "c": float(r["closePrice"]), "v": float(r.get("volume") or 0)} for r in rows]
+                except toss.TossError as e:
+                    progress(a, "  %s: %s" % (s, e))
+                if (i + 1) % 100 == 0:
+                    progress(a, "  %d / %d" % (i + 1, len(syms)))
     hits, counts, last_date = scan_daily(series, syms, now, a.min_price, a.min_value)
     for h in hits:
         h["name"] = names.get(h["symbol"])
     doc = {"created_by": "trader-kr-scanner", "created_at": now.strftime("%Y-%m-%d %H:%M:%S"), "mode": "daily",
            "as_of": ("%s 종가" % last_date) if last_date else None, "candidates": how, "scanned": counts["scanned"],
-           "source": "offline" if a.offline else "toss",
+           "source": "offline" if a.offline else ("krx" if getattr(a, "krx_key", None) else "toss"),
            "filters": {"min_price": a.min_price, "min_value": a.min_value}, "note": NOTE, "hits": hits}
+    if not a.offline and not getattr(a, "krx_key", None):
+        doc["warning"] = "토스증권 일봉 종가는 20:00 NXT 애프터마켓 마지막 가격이라 KRX 종가와 다를 수 있습니다"
     if not a.no_write:
         krx.write_json(a.out, doc)
     if a.json:
         print(json.dumps(dict(doc, counts=counts), ensure_ascii=False, indent=2))
         return 0 if hits else 1
-    print("일봉 스캔, %s, %s 종가까지. 후보: %s." % (now.strftime("%Y-%m-%d %H:%M"), last_date or "없음", how))
+    print("일봉 스캔, %s, %s 종가까지 (%s). 후보: %s." % (now.strftime("%Y-%m-%d %H:%M"), last_date or "없음",
+                                                     "오프라인" if a.offline else src_word, how))
+    if doc.get("warning"):
+        print("참고: " + doc["warning"] + ". KRX_API_KEY 를 넣으면 KRX 공식 종가로 잽니다.")
     print("%d종목 받음, 유동성 통과 %d (종가 %s원 이상, 거래대금 %s 이상)%s." % (
         counts["fetched"], counts["fetched"] - counts["illiquid"] - counts["short"], p(a.min_price), krx.won(a.min_value),
         (", %d종목은 일봉 %d개 미만" % (counts["short"], MIN_DAILY_BARS)) if counts["short"] else ""))
@@ -429,6 +465,8 @@ def main(argv=None):
 
     q = sub.add_parser("daily", help="장 전 일봉 셋업")
     common(q)
+    q.add_argument("--source", choices=["auto", "krx", "toss"], default="auto",
+                   help="일봉 출처 (auto: KRX_API_KEY 가 있으면 KRX 공식 종가, 없으면 토스)")
     q.add_argument("--min-price", type=float, default=1000)
     q.add_argument("--min-value", type=float, default=1e9, help="최소 거래대금 (기본 10억원)")
     q = sub.add_parser("orb", help="지금까지 시가 범위 돌파")
