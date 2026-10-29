@@ -1,0 +1,38 @@
+# 시험은 네트워크 없이 합성 자료로 돈다. 키도 비밀값도 쓰지 않는다.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python 3.12
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: unittest
+        run: python -X utf8 -m unittest discover -s tests
+      - name: demo (8 steps, no keys)
+        run: python -X utf8 krcommon/demo.py --replays 2000
+
+  oldest:
+    name: ubuntu / Python 3.8 (oldest supported)
+    runs-on: ubuntu-latest
+    container: python:3.8-slim
+    steps:
+      - uses: actions/checkout@v5
+      - name: unittest
+        run: python -X utf8 -m unittest discover -s tests
+      - name: demo (8 steps, no keys)
+        run: python -X utf8 krcommon/demo.py --replays 2000

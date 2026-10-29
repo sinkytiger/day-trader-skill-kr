@@ -130,5 +130,13 @@ class FiveMinuteBars(unittest.TestCase):
         self.assertEqual(out[1]["n"], 3)
 
 
+
+class Pad(unittest.TestCase):
+    def test_korean_counts_two_columns(self):
+        self.assertEqual(krx.text_width("ORB15 저가손절"), 14)
+        self.assertEqual(krx.pad("규칙", 6), "규칙  ")
+        self.assertEqual(krx.pad("너무 긴 이름", 4), "너무 긴 이름")
+
+
 if __name__ == "__main__":
     unittest.main()

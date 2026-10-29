@@ -8,7 +8,8 @@ description: >-
   (투자유의 종목 제외)이고, 주식·보통주·거래 가능 종목만 남긴다. 전 종목 목록(universe)과 직접
   고른 종목도 된다. trader-kr/watchlist.json 에 쓴다. 사려는 목록이 아니라 규칙에 맞는 차트 목록이다.
   사용자가 "오늘 뭐 볼까", "돌파한 종목", "스캔 돌려 줘", "시가 범위 돌파 종목", "신고가 종목",
-  "scan the market", "find setups" 라고 하면 쓴다. 다음은 /trader-kr-entry.
+  "scan the market", "find setups" 라고 하면 쓴다. 키가 없거나 "데모", "키 없이 해 보기" 라고 하면
+  합성 자료 데모를 돌린다. 다음은 /trader-kr-entry.
 argument-hint: "universe | daily | orb [--at HH:MM] [--symbols 005930,000660] [--universe]"
 ---
 
@@ -30,6 +31,13 @@ python "${CLAUDE_SKILL_DIR}/scan.py" orb --symbols 005930,000660,035420
 
 그 밖의 옵션: `--limit N`, `--include-preferred`, `--watchlist FILE`, `--min-price`, `--min-value` (daily),
 `--show N`, `--no-write`, `--json`, `--offline DIR` 와 `--now "2026-10-28 10:15"` (저장한 파일로 다시 보기).
+
+키가 아직 없거나 흐름부터 보고 싶으면 합성 자료 데모를 돌린다. 합성 종목 3개로 스캔부터 실험실까지 8단계를
+5초쯤에 돌리고, 네트워크와 실제 키를 쓰지 않는다. 실제 시세가 아니라고 함께 말한다.
+
+```bash
+python "${CLAUDE_SKILL_DIR}/../krcommon/demo.py" --dir trader-kr-demo
+```
 
 ## 읽고 쓰는 것
 

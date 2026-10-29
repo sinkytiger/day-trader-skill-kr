@@ -1,5 +1,7 @@
 # day-trader-skill-kr
 
+[![tests](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml/badge.svg)](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml)
+
 국내 주식(코스피·코스닥) 단타용 Claude 스킬 8종. 차트를 스캔하고, 진입 순간을 알려 주고, 손절가와 목표가를
 먼저 정하고, 남은 장을 10,000번 다시 돌려 보고, 최대 손실에 맞춰 수량을 정하고, 한도를 넘는 주문을 막는다. 그리고
 실제 거래를 일지에 적어 계획을 지켰는지 재고, 여러 규칙을 앞 기간에서 골라 뒤 기간에서 확인해 비용을 내고도 남는
@@ -40,6 +42,32 @@ journal: open / close / report                                 (산 뒤, 판 뒤
 lab: run                                                       (규칙을 바꾸기 전에)
 ```
 
+## 키 없이 먼저 돌려 보기
+
+```bash
+git clone https://github.com/sinkytiger/day-trader-skill-kr.git
+cd day-trader-skill-kr
+python krcommon/demo.py
+```
+
+합성 종목 3개(실제 시세 아님)로 8단계를 차례로 돌린다. 각 스킬이 쓰는 스크립트를 오프라인 옵션으로 그대로 부르고,
+돌린 명령과 출력을 단계마다 보여 준다. 5초쯤 걸리고, 결과 파일은 `trader-kr-demo/trader-kr/` 에 남는다. 네트워크를
+쓰지 않고 실제 키도 읽지 않는다: 스크립트의 홈 폴더를 데모 폴더로 바꾸고 키 환경변수를 지운 채 돌린다. 플러그인으로
+설치했다면 Claude 에게 "데모 돌려 줘" 라고 하면 된다.
+
+```
+== 6/8 위험 점검: 종목 상태, 시간, 한도 (/trader-kr-risk) ==
+PASS  #1 매수 SYN001 합성종목 119주, 진입
+          진입 30,450 (계획 진입가), 손절 30,100, 목표 31,150: 주당 위험 350원
+          손절 때 손실 49,893원 (한도 50,000원), 비용 뺀 손익비 1.50 (최소 1)
+...
+== 8/8 전략 검증 실험실: 48개 규칙을 앞에서 고르고 뒤에서 확인 (/trader-kr-lab) ==
+고른 규칙의 시험 기간 성적: 거래 36건, 비용 뺀 평균 R -0.518 (95% 구간 -0.883 ~ -0.137). 비용 뺀 기대값이
+음수입니다. 이 규칙들로는 남는 게 없습니다.
+```
+
+합성 자료는 시드를 고정한 무작위 걸음이라 남는 규칙이 없어야 정상이고, 실제로 그렇게 나온다.
+
 ## 설치
 
 Claude Code 플러그인으로:
@@ -49,7 +77,8 @@ Claude Code 플러그인으로:
 /plugin install day-trader-skill-kr@day-trader-skill-kr
 ```
 
-또는 폴더를 복사한다. 스크립트가 공통 모듈 `krcommon/` 을 옆 폴더에서 찾으므로 같이 복사해야 한다.
+2026-10-29 에 Claude Code 2.1.309 의 빈 설정에서 위 두 줄로 설치해 스킬 8개가 올라오는 것을 확인했다 (항상 드는
+토큰 약 1,060). 또는 폴더를 복사한다. 스크립트가 공통 모듈 `krcommon/` 을 옆 폴더에서 찾으므로 같이 복사해야 한다.
 
 ```bash
 git clone https://github.com/sinkytiger/day-trader-skill-kr.git
@@ -166,7 +195,8 @@ KRX 응답이 한 번에 몇 초씩 걸려서 날짜 여섯 개씩 동시에 받
 python -m unittest discover -s tests -v
 ```
 
-네트워크 없이 돈다. 시세는 `tests/synth.py` 가 만드는 합성 종목 SYN001 (62 거래일, 시드 고정 무작위 걸음, 마지막 날은
+네트워크 없이 돈다. GitHub Actions 가 푸시마다 리눅스·Windows·macOS 의 파이썬 3.12 와 리눅스 파이썬 3.8 에서 시험과
+데모를 돌린다. 시세는 `krcommon/synth.py` 가 만드는 합성 종목 SYN001 (62 거래일, 시드 고정 무작위 걸음, 마지막 날은
 10:15 에 시가 범위를 돌파하도록 정한 모양) 이고, 토스증권 서버는 `tests/fake_toss.py` 가 흉내 낸다. 가짜 서버로
 토큰 저장, 401 재발급, 429 대기, 403 안내, 1분봉 페이지 넘김과 캐시, 가짜 DART 공시, 그리고 스캔부터 위험 점검까지
 온라인 흐름 전체를 시험한다. 시험은 실제 키 환경변수를 지우고 돈다. 스킬 문서의 예시 출력은 이 합성 자료에서 실제로 나온 값이다. 실제 시세가 아니므로 시뮬레이션 숫자에는
@@ -199,8 +229,9 @@ trader-kr-journal/      SKILL.md, journal.py
 trader-kr-lab/          SKILL.md, lab.py
 krcommon/               krx.py (시장 규칙), toss.py (토스증권 시세), bars.py (1분봉 캐시, 5분봉), data.py,
                         dart.py (그날 공시), krxdata.py (KRX 공식 일봉), keys.py (키 등록), liquidity.py (호가창),
-                        doctor.py (연결 점검)
-tests/                  unittest, 합성 자료, 가짜 토스증권 서버
+                        doctor.py (연결 점검), demo.py (키 없이 8단계), synth.py (합성 1분봉)
+tests/                  unittest, 가짜 토스증권 서버
+.github/workflows/      tests.yml (시험과 데모, 키 없음)
 ```
 
 ## In English
@@ -212,5 +243,6 @@ reading Toss Securities Open API market data. It adds KRX session hours (continu
 the ±30% price limits, transaction tax and fees in every loss and reward:risk figure, and blocks on exchange warnings,
 volatility interruptions and trading halts. Phase 1 places no orders and calls no account or order endpoints. Tests run
 offline on synthetic data, because Toss data may only be used for the account holder's own trading.
+To see all eight steps without any keys, run `python krcommon/demo.py` (synthetic data, no network, about 5 seconds).
 
 MIT. 원본 저작권 표시는 [LICENSE](LICENSE) 에 그대로 있다.

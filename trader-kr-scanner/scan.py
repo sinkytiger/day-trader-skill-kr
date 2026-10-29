@@ -366,7 +366,7 @@ def cmd_daily(a):
     else:
         print("셋업 없음.")
     for h in hits[:a.show]:
-        print("  %s %-10s %10s  RSI %5s  %s" % (h["symbol"], (h.get("name") or "")[:10], p(h["price"]),
+        print("  %s %s %10s  RSI %5s  %s" % (h["symbol"], krx.pad((h.get("name") or "")[:10], 20), p(h["price"]),
                                              ("%.1f" % h["rsi"]) if h["rsi"] is not None else "-",
                                              ", ".join(LABEL[t] for t in h["setups"])))
     if len(hits) > a.show:
@@ -420,15 +420,16 @@ def cmd_orb(a):
     if a.json:
         print(json.dumps(dict(doc, counts=counts), ensure_ascii=False, indent=2))
         return 0 if hits else 1
-    print("시가 범위 돌파 스캔, %s %s: %d분 범위 (%s ~ %s), 5분봉, 토스증권. 후보: %s." % (
+    print("시가 범위 돌파 스캔, %s %s: %d분 범위 (%s ~ %s), 5분봉, %s. 후보: %s." % (
         day.isoformat(), cutoff.strftime("%H:%M"), a.or_minutes, krx.hm(session.open_t),
-        krx.hm((session.open_dt + datetime.timedelta(minutes=a.or_minutes)).time()), how))
+        krx.hm((session.open_dt + datetime.timedelta(minutes=a.or_minutes)).time()),
+        "저장된 파일" if a.offline else "토스증권", how))
     print("%d종목 받음, %d종목 사용 가능%s." % (counts["fetched"], counts["scanned"],
                                      (" (%d종목은 빈 봉이 있음)" % counts["unusable"]) if counts["unusable"] else ""))
     if hits:
         print("%d / %d 종목이 %s 까지 시가 범위 고가 위에서 끝났습니다:" % (len(hits), counts["scanned"], cutoff.strftime("%H:%M")))
         for h in hits[:a.show]:
-            print("  %s  %s %-10s %10s  범위 %s ~ %s  %+.2f%%" % (h["at"], h["symbol"], (h.get("name") or "")[:10],
+            print("  %s  %s %s %10s  범위 %s ~ %s  %+.2f%%" % (h["at"], h["symbol"], krx.pad((h.get("name") or "")[:10], 20),
                                                               p(h["price"]), p(h["or_low"]), p(h["or_high"]),
                                                               h["pct_over"]))
         if len(hits) > a.show:

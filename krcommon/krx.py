@@ -32,6 +32,7 @@ import datetime
 import json
 import os
 import re
+import unicodedata
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
 
 KST = datetime.timedelta(hours=9)
@@ -385,6 +386,17 @@ def won(x):
     """금액 표시: 1234567 -> '1,234,567원'."""
     v = D(x).quantize(Decimal(1), rounding=ROUND_HALF_UP)
     return "{:,}원".format(int(v))
+
+
+def text_width(text):
+    """고정폭 화면에서 차지하는 칸 수. 한글처럼 넓은 글자는 2칸."""
+    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in str(text))
+
+
+def pad(text, width):
+    """%-Ns 처럼 왼쪽 맞춤하되 한글을 2칸으로 센다."""
+    text = str(text)
+    return text + " " * max(0, width - text_width(text))
 
 
 def price_str(x):

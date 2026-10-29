@@ -293,16 +293,16 @@ def report(res):
              krx.pct_str(c["commission_rate"], 3), krx.pct_str(c["sell_tax_rate"], 2), c["slip_ticks"]), ""]
     top = sorted(res["table"], key=lambda r: -(r["avg_R_net"] if r["avg_R_net"] is not None else -9))[:8]
     L.append("1. 전 기간 (고르기 전, 참고). 비용 뺀 평균 R 상위 8개:")
-    L.append("   %-36s %6s %9s %9s %6s %8s" % ("규칙", "거래", "비용 전 R", "비용 뒤 R", "승률", "보정 p"))
+    L.append("   %s %6s %9s %9s %6s %8s" % (krx.pad("규칙", 36), "거래", "비용 전 R", "비용 뒤 R", "승률", "보정 p"))
     for r in top:
-        L.append("   %-36s %6d %+9.3f %+9.3f %5.0f%% %8.3f" % (
-            r["rule"], r["trades"], r["avg_R"] or 0, r["avg_R_net"] or 0, 100 * (r["win_rate"] or 0), r["p_holm"]))
+        L.append("   %s %6d %+9.3f %+9.3f %5.0f%% %8.3f" % (
+            krx.pad(r["rule"], 36), r["trades"], r["avg_R"] or 0, r["avg_R_net"] or 0, 100 * (r["win_rate"] or 0), r["p_holm"]))
     L.append("")
     L.append("2. 워크포워드 (앞 %d 거래일에서 고르고 뒤 %d 거래일에서 확인, %d번):" % (st["train"], st["test"], len(res["folds"])))
     for f in res["folds"]:
         if f["rule"]:
-            L.append("   %s~%s 고름: %-34s 학습 %+.3f -> 시험 %s (%d건)" % (
-                f["test"][0], f["test"][1], f["rule"], f["train_avg_R_net"],
+            L.append("   %s~%s 고름: %s 학습 %+.3f -> 시험 %s (%d건)" % (
+                f["test"][0], f["test"][1], krx.pad(f["rule"], 36), f["train_avg_R_net"],
                 ("%+.3f" % f["test_avg_R_net"]) if f["test_avg_R_net"] is not None else "-", f["test_trades"]))
         else:
             L.append("   %s~%s 고를 규칙 없음 (학습 기간 거래 %d건 미만)" % (f["test"][0], f["test"][1], st["min_trades"]))

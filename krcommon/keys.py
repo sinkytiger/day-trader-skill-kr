@@ -82,7 +82,7 @@ def cmd_status(a, out=print, env=None, h=None):
     for kind in ("toss", "krx", "dart"):
         desc, found = where(kind, env, h)
         need = {"toss": "필수 (시세)", "krx": "선택 (장 전 스캔의 KRX 공식 종가)", "dart": "선택 (그날 공시 경고)"}[kind]
-        out("%-18s %s  %s" % (NAMES[kind], "있음" if found else "없음", "(%s)" % desc if found else "- " + need))
+        out("%s %s  %s" % (krx.pad(NAMES[kind], 22), "있음" if found else "없음", "(%s)" % desc if found else "- " + need))
     out("키 값은 찍지 않았습니다. 등록: python krcommon/keys.py krx | dart | toss")
     return 0
 

@@ -87,7 +87,8 @@ def evaluate(chart, now_kst, session, setup="orb", or_minutes=15, interval="5m",
         raise EntryError("--setup level 은 --level 가격이 필요합니다 (예: 20일 신고가)")
     n_or = or_minutes * 60 // step
     day = now_kst.date()
-    res = {"symbol": chart["symbol"], "name": chart.get("name"), "setup": setup, "side": "buy",
+    res = {"symbol": chart["symbol"], "name": chart.get("name"), "source": chart.get("source") or "toss",
+           "setup": setup, "side": "buy",
            "date": day.isoformat(), "interval": interval, "or_minutes": or_minutes,
            "now": now_kst.strftime("%Y-%m-%d %H:%M:%S"), "status": "waiting", "phase": "", "reason": "",
            "opening_range": None, "level": None, "trigger": None, "last": None, "forming": None,
@@ -204,7 +205,7 @@ def entry_doc(res):
             "bar_start": t.get("bar_start"), "bar_index": t.get("bar_index"), "price": t.get("price"),
             "level": res.get("level"), "interval": res["interval"],
             "opening_range": {"high": orr["high"], "low": orr["low"], "minutes": orr["minutes"]} if orr else None,
-            "session": res.get("session"), "source": "toss", "checked_at": res["now"], "reason": res.get("reason")}
+            "session": res.get("session"), "source": res.get("source", "toss"), "checked_at": res["now"], "reason": res.get("reason")}
 
 
 STATUS_WORD = {"triggered": "신호", "waiting": "대기", "expired": "만료", "no-data": "자료 없음"}
@@ -215,9 +216,10 @@ def describe(res):
     when = datetime.datetime.strptime(res["now"], "%Y-%m-%d %H:%M:%S")
     setup = ("시가 범위 돌파 (%d분 범위)" % res["or_minutes"]) if res["setup"] == "orb" else (
         "%s 위 종가" % p(res["level"]) if res.get("level") is not None else "기준 가격 위 종가")
-    head = "%s%s  %s %s  %s, %s봉 (토스증권)" % (res["symbol"], (" " + res["name"]) if res.get("name") else "",
-                                           when.strftime("%Y-%m-%d"), when.strftime("%H:%M"), setup,
-                                           "5분" if res["interval"] == "5m" else "1분")
+    head = "%s%s  %s %s  %s, %s봉 (%s)" % (res["symbol"], (" " + res["name"]) if res.get("name") else "",
+                                          when.strftime("%Y-%m-%d"), when.strftime("%H:%M"), setup,
+                                          "5분" if res["interval"] == "5m" else "1분",
+                                          "저장된 파일" if res.get("source") == "offline" else "토스증권")
     out = [head]
     s = res.get("session") or {}
     if s.get("source") == "default" and res["status"] != "no-data":
@@ -495,7 +497,8 @@ def cmd_watchlist(a):
         print(json.dumps([{"symbol": s, "result": public(r) if r else None, "error": e} for s, r, e in rows],
                          ensure_ascii=False, indent=2, default=str))
     else:
-        print("%-7s %-10s %-6s %-10s %-10s %-10s %s" % ("종목", "상태", "시각", "가격", "기준", "마지막", "기준 대비"))
+        print("%s %s %s %-10s %-10s %-10s %s" % (krx.pad("종목", 7), krx.pad("상태", 12), krx.pad("시각", 6), "가격",
+                                                 "기준", "마지막", "기준 대비"))
         for s, r, e in rows:
             if e:
                 print("%-7s 오류: %s" % (s, e))
@@ -503,8 +506,8 @@ def cmd_watchlist(a):
             t = r.get("trigger") or {}
             last = r.get("last") or {}
             st = "신호" if r["status"] == "triggered" else (PHASE_WORD.get(r["phase"]) or STATUS_WORD.get(r["status"]))
-            print("%-7s %-10s %-6s %-10s %-10s %-10s %s" % (
-                s, st, t.get("time") or "-", p(t["price"]) if t else "-",
+            print("%-7s %s %-6s %-10s %-10s %-10s %s" % (
+                s, krx.pad(st, 12), t.get("time") or "-", p(t["price"]) if t else "-",
                 p(r["level"]) if r.get("level") is not None else "-", p(last["close"]) if last else "-",
                 ("%+.2f%%" % last["vs_level_pct"]) if last.get("vs_level_pct") is not None else "-"))
         n = sum(1 for _, r, _ in rows if r and r["status"] == "triggered")

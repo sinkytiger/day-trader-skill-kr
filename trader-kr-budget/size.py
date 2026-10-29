@@ -223,7 +223,8 @@ def plan_report(s, order, notes=()):
     L.append("")
     L.append("한도 (1주 단위, 가장 작은 것이 정함):")
     for l in s["limits"]:
-        L.append("  %-8s %-58s %5d주%s" % (l["name"], l["how"], l["shares"], "  <- 이것" if l["binds"] else ""))
+        L.append("  %s %s %5d주%s" % (krx.pad(l["name"], 10), krx.pad(l["how"], 72), l["shares"],
+                                     "  <- 이것" if l["binds"] else ""))
     L.append("")
     if order is None:
         L.append("주문 없음: " + s["refusal"])

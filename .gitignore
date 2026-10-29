@@ -1,6 +1,7 @@
 # 내 매매 상태와 토스증권 자료는 저장소에 올리지 않는다.
 # 토스증권 Open API 자료는 "투자자 본인의 매매 목적"으로만 쓸 수 있다.
 trader-kr/
+trader-kr-demo/
 *.cache.json
 credentials*.json
 token*.json
