@@ -40,6 +40,7 @@ python "${CLAUDE_SKILL_DIR}/check.py" --no-network --status status.json
 | `trader-kr/state/broker.json` | 오늘 낸 주문 기록: 중복, 거래 수, 하루 손실 (주문 단계가 생기면 씀) |
 | 토스증권 종목 정보·매수 유의사항·상·하한가 | 주문 종목마다. `trader-kr/state/market_status.json` 에 남긴다 |
 | 토스증권 현재가 | 15분 안의 가격이면 손실을 재는 데 쓰고, 손절가 이하면 막는다 |
+| 토스증권 호가창 | 손절 때 밀림 추정. 보이는 매수 잔량보다 많이 팔아야 하면 경고 |
 | 토스증권 장 운영 정보 | 오늘 휴장인지, 개장·접속매매 끝 시각. 못 받으면 막는다 |
 | DART 공시 목록 | `DART_API_KEY` 가 있으면 그날 그 종목 공시를 경고 |
 | `trader-kr/state/risk.json` | 판정과 주문마다 지문 |
@@ -64,7 +65,8 @@ python "${CLAUDE_SKILL_DIR}/check.py" --no-network --status status.json
 | 가격 | 15분 안의 현재가가 손절가 이하 (계획이 이미 깨짐). 시장가는 현재가가 계획 진입가보다 높으면 그 가격으로 손실을 잰다 |
 | 계획 날짜 | 오늘 계획이 아님 |
 | 손절 | 손절이 없음 (`require_stop`), 손절이 진입가 이상 |
-| 손실 | 수량 x 위험 + 수수료 + 매도세 가 `max_loss_per_trade_krw` 초과 |
+| 손실 | 수량 x (진입가 - 손절가 + 손절 때 호가창 밀림) + 비용 이 `max_loss_per_trade_krw` 초과 |
+| 비용 | 손절 때 비용과 예상 밀림이 주당 위험의 `max_cost_to_risk` (기본 30%) 초과 |
 | 손익비 | 비용 뺀 손익비가 `min_reward_risk` 미만 |
 | 하루 손실 | 오늘 진입들의 손절 때 손실 합 + 이번 것 이 `max_daily_loss_krw` 초과 |
 | 거래 수 | 오늘 진입이 이미 `max_trades_per_day` |

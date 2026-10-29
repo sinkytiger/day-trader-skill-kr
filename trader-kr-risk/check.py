@@ -53,7 +53,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
-from krcommon import dart, data, krx, toss  # noqa: E402
+from krcommon import dart, data, krx, liquidity, toss  # noqa: E402
 
 ORDER_FIELDS = ("symbol", "side", "qty", "type", "limit_price", "time_in_force", "exit")
 TYPES = {"market", "limit"}
@@ -131,6 +131,10 @@ def fetch_status(symbols, today):
         try:
             rec["warnings"] = c.warnings(sym)
             rec["price_limits"] = c.price_limits(sym)
+            try:
+                rec["orderbook"] = c.orderbook(sym)
+            except toss.TossError:
+                rec["orderbook"] = None      # 호가창이 없으면 체결 비용만 빼고 본다
         except toss.TossError as e:
             rec["error"] = str(e)
         if rec.get("stock") is None and "error" not in rec:
@@ -387,7 +391,18 @@ def check(orders, cfg, portfolio=None, state=None, status=None, now=None, sessio
                 else:
                     risk_ps = ref - stop
                     if q:
-                        max_loss = q * risk_ps + krx.trade_costs(ref, stop, q, cr, tr)["total"]
+                        book = ((status or {}).get(sym) or {}).get("orderbook")
+                        slip = liquidity.stop_slippage(book, q) if book and c.get("use_book_slippage", True) else None
+                        slip_ps = slip["per_share"] if slip else 0.0
+                        max_loss = q * (risk_ps + slip_ps) + krx.trade_costs(ref, stop, q, cr, tr)["total"]
+                        if slip and slip["unfilled"]:
+                            warns.append("보이는 매수 잔량으로는 손절 때 %d주를 다 못 팝니다. 실제 손실이 더 클 수 있습니다"
+                                         % slip["unfilled"])
+                        ctr = (krx.cost_per_share(ref, stop, cr, tr) + slip_ps) / risk_ps
+                        max_ctr = _f(c.get("max_cost_to_risk"))
+                        if max_ctr and ctr > max_ctr:
+                            later.append("비용: 손절 때 비용%s이 주당 위험의 %.0f%% 로 한도 %.0f%% 를 넘습니다"
+                                         % ("과 예상 밀림" if slip_ps else "", 100 * ctr, 100 * max_ctr))
                         cap_l = _f(c.get("max_loss_per_trade_krw"))
                         if cap_l and max_loss > cap_l:
                             later.append("손실: %d주 x 위험 %s원 + 비용 = 손절 때 %s, 거래당 최대 손실 %s 초과"

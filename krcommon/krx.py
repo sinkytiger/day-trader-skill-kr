@@ -73,6 +73,8 @@ CONFIG_DEFAULTS = {
     "allow_margin": False,
     "allow_short": False,
     "require_market_status": True,
+    "max_cost_to_risk": 0.3,
+    "use_book_slippage": True,
 }
 
 SYMBOL = re.compile(r"^[0-9A-Z]{6}$")

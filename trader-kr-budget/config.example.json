@@ -21,5 +21,7 @@
   "allow_etf": false,
   "allow_margin": false,
   "allow_short": false,
-  "require_market_status": true
+  "require_market_status": true,
+  "max_cost_to_risk": 0.3,
+  "use_book_slippage": true
 }

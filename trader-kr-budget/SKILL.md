@@ -38,6 +38,7 @@ python "${CLAUDE_SKILL_DIR}/size.py" --json
 | `trader-kr/config.json` | `budget`, `max_loss_per_trade_krw`, `max_position_pct`, `max_order_krw`, `cash_buffer_pct`, `min_order_krw`, `min_reward_risk`, `commission_rate`, `sell_tax_rate`, `blocked` |
 | `trader-kr/portfolio.json` | 있으면 `cash` 가 수량 상한 (선택) |
 | 토스증권 현재가 | 오늘 계획이고 지정가가 아니면 한 번 부른다 |
+| 토스증권 호가창 | 오늘 계획이면 한 번 부른다 (`--book FILE` 로 대신 줄 수 있음). 스프레드, 시장가 평균 체결가, 중간가 절약, 손절 때 밀림 |
 | `trader-kr/orders.json` | 주문 제안 1건: 매수(시장가 또는 지정가, 당일)와 `exit` (손절가, 목표가, 청산 시각) |
 
 ## 계산
@@ -50,6 +51,13 @@ python "${CLAUDE_SKILL_DIR}/size.py" --json
   주문 한도   max_order_krw / 진입가
   현금        (budget 또는 계좌 현금 - 버퍼) / (진입가 x (1 + 수수료))
 ```
+
+**체결 비용.** 호가창이 있으면 (`use_book_slippage`, 기본 켬) 손절가에 닿았을 때 지금 매수 잔량 모양으로 수량만큼
+팔면 손절가보다 얼마나 아래에서 평균 체결되는지 재서 주당 손실에 더하고 수량을 다시 정한다. 시장가로 사면 평균 얼마에
+체결되는지, 중간가·지정가로 들어가면 최대 얼마를 아끼는지도 보여 준다. 급락 때는 잔량이 얇아져 더 밀릴 수 있다.
+
+**비용 필터.** 손절 때 비용(수수료 + 매도세)과 예상 밀림을 합친 값이 주당 위험의 `max_cost_to_risk`(기본 30%)를 넘으면
+거절한다. 손절 폭이 좁을수록 비용이 남는 몫을 먹기 때문이다.
 
 진입가는 지정가면 지정가, 아니면 계획 진입가와 지금 가격 중 높은 쪽 (지금 가격은 호가 단위로 올림). 지정가는 호가
 단위여야 한다. 지금 가격이 이미 손절가 이하면 계획이 깨진 것이라 거절한다.

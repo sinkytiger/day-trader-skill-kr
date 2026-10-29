@@ -1,7 +1,9 @@
 # day-trader-skill-kr
 
-국내 주식(코스피·코스닥) 단타용 Claude 스킬 6종. 차트를 스캔하고, 진입 순간을 알려 주고, 손절가와 목표가를
-먼저 정하고, 남은 장을 10,000번 다시 돌려 보고, 최대 손실에 맞춰 수량을 정하고, 한도를 넘는 주문을 막는다.
+국내 주식(코스피·코스닥) 단타용 Claude 스킬 8종. 차트를 스캔하고, 진입 순간을 알려 주고, 손절가와 목표가를
+먼저 정하고, 남은 장을 10,000번 다시 돌려 보고, 최대 손실에 맞춰 수량을 정하고, 한도를 넘는 주문을 막는다. 그리고
+실제 거래를 일지에 적어 계획을 지켰는지 재고, 여러 규칙을 앞 기간에서 골라 뒤 기간에서 확인해 비용을 내고도 남는
+규칙이 있는지 가린다.
 
 [Jake Schincariol 의 day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT, 미국 주식 전용)을
 국내 시장 규칙과 토스증권 Open API 시세로 옮겼다. 계산은 파이썬이 하고 Claude 는 결정하지 않는다는 원본의 원칙은
@@ -12,7 +14,7 @@
 
 > 교육과 도구일 뿐 투자 권유가 아니다 (not financial advice). 단타를 하는 사람 대부분은 돈을 잃는다.
 
-## 스킬 6종
+## 스킬 8종
 
 | 명령 | 이름 | 하는 일 |
 | --- | --- | --- |
@@ -21,7 +23,9 @@
 | `/trader-kr-exit` | 청산 계획 | 사기 전에 손절가와 목표가를 호가 단위로 정하고 비용 뺀 손익비를 보여 준다 |
 | `/trader-kr-timemachine` | 타임머신 | 지난 60 거래일 5분봉으로 남은 장을 10,000번 재생하고 같은 규칙을 지난 거래일에 다시 적용한다 |
 | `/trader-kr-budget` | 수량 계산 | 수수료와 매도 거래세까지 넣은 최대 손실에 맞춰 몇 주 살지 정한다 |
-| `/trader-kr-risk` | 위험 점검 | 투자경고·VI·거래정지 종목, 시간 밖 진입, 한도 초과를 PASS / BLOCK 으로 가른다 |
+| `/trader-kr-risk` | 위험 점검 | 투자경고·VI·거래정지 종목, 시간 밖 진입, 한도 초과, 비용에 비해 작은 위험을 PASS / BLOCK 으로 가른다 |
+| `/trader-kr-journal` | 거래 일지 | 실제 진입·청산을 적고 늦은 진입, 손절 어김, 청산 시각 어김, 낸 비용을 숫자로 보여 준다 |
+| `/trader-kr-lab` | 전략 검증 실험실 | 48가지 규칙을 앞 120 거래일에서 고르고 뒤 20 거래일에서 확인한다. 우연을 홀름 보정으로 걸러 낸다 |
 
 원본의 나머지 다섯 (뉴스, 주문 실행, 가격 알림, 실적 요약, 의원 매매 공시) 은 아직 옮기지 않았다. 뉴스는 DART 공시,
 실적 요약은 DART 재무, 의원 매매는 DART 임원·주요주주 소유보고로 바꿀 계획이다. 주문 실행은 아래 "주문 단계" 를 보라.
@@ -31,8 +35,9 @@
 모든 결과는 프로젝트의 `trader-kr/` 폴더에 쌓이고, 다음 스킬이 앞 스킬의 파일을 읽는다.
 
 ```
-scanner -> entry -> exit -> timemachine -> budget -> risk
-watchlist.json  entry.json  plan.json  timemachine.json  orders.json  state/risk.json
+scanner -> entry -> exit -> timemachine -> budget -> risk      (거래 하나)
+journal: open / close / report                                 (산 뒤, 판 뒤, 주말마다)
+lab: run                                                       (규칙을 바꾸기 전에)
 ```
 
 ## 설치
@@ -127,6 +132,9 @@ KRX 응답이 한 번에 몇 초씩 걸려서 날짜 여섯 개씩 동시에 받
 | 재생 보조 결과 | 없음 | 30분 묶음 재생, 120 거래일 과거 재적용과 95% 구간 |
 | 사건 | 뉴스 스킬 따로 | `DART_API_KEY` 가 있으면 위험 점검과 타임머신이 그날 공시를 경고 |
 | 늦은·깨진 계획 | 신선한 가격으로 손실 재기 | 같음. 그리고 현재가가 손절가 이하면 막고, 신호 뒤 15분이 지나면 경고 |
+| 체결 비용 | 없음 | 토스 호가창으로 시장가 평균 체결가, 중간가 절약, 손절 때 밀림을 재서 수량과 최대 손실에 넣음 |
+| 비용 필터 | 없음 | 손절 때 비용과 밀림이 주당 위험의 30% 를 넘는 거래를 막음 |
+| 기록과 검증 | 없음 | 거래 일지, 워크포워드 전략 검증 실험실 |
 | 주문 | Alpaca, IBKR (모의계좌 기본) | 1단계에는 없음. 토스증권 API 에 모의투자 서버가 없음 |
 
 **호가 단위와 체결가.** 손절가, 목표가, 지정가는 한국거래소의 2023-01-25 표 (2,000원 미만 1원, 5,000원 미만 5원,
@@ -187,16 +195,19 @@ trader-kr-exit/         SKILL.md, exit.py
 trader-kr-timemachine/  SKILL.md, timemachine.py
 trader-kr-budget/       SKILL.md, size.py, config.example.json
 trader-kr-risk/         SKILL.md, check.py
+trader-kr-journal/      SKILL.md, journal.py
+trader-kr-lab/          SKILL.md, lab.py
 krcommon/               krx.py (시장 규칙), toss.py (토스증권 시세), bars.py (1분봉 캐시, 5분봉), data.py,
-                        dart.py (그날 공시), krxdata.py (KRX 공식 일봉), keys.py (키 등록),
+                        dart.py (그날 공시), krxdata.py (KRX 공식 일봉), keys.py (키 등록), liquidity.py (호가창),
                         doctor.py (연결 점검)
 tests/                  unittest, 합성 자료, 가짜 토스증권 서버
 ```
 
 ## In English
 
-A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): six Claude skills
-for KOSPI/KOSDAQ day trades (scanner, entry timer, exit planner, Monte Carlo time machine, position sizing, risk check),
+A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): eight Claude skills
+for KOSPI/KOSDAQ day trades (scanner, entry timer, exit planner, Monte Carlo time machine, position sizing, risk check,
+a trade journal that measures plan adherence, and a walk-forward strategy lab with Holm-corrected tests),
 reading Toss Securities Open API market data. It adds KRX session hours (continuous trading 09:00 to 15:20), tick sizes,
 the ±30% price limits, transaction tax and fees in every loss and reward:risk figure, and blocks on exchange warnings,
 volatility interruptions and trading halts. Phase 1 places no orders and calls no account or order endpoints. Tests run

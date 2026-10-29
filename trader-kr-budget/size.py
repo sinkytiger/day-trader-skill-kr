@@ -36,7 +36,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
-from krcommon import data, krx, toss  # noqa: E402
+from krcommon import data, krx, liquidity, toss  # noqa: E402
 
 SETUP_WORDS = {"orb": "시가 범위 돌파", "level": "기준 가격 위 종가", "flag": "깃발", "bounce": "과매도 반등"}
 
@@ -62,7 +62,7 @@ def shares_for(krw, per_share):
     return int(math.floor(float(krw) / float(per_share) + 1e-9))
 
 
-def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=None):
+def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=None, book=None):
     """순수 함수: 계획 하나 + 규칙 -> 수량 계산 결과 (qty 는 0일 수 있음)."""
     c = dict(krx.CONFIG_DEFAULTS)
     c.update(cfg or {})
@@ -121,29 +121,44 @@ def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=
         cash_note = "trader-kr/portfolio.json 현금 %s - 버퍼 %s" % (krx.won(cash), krx.won(cash_buffer))
     available = max(available, 0.0)
 
-    limits = []
     max_loss = _f(c.get("max_loss_per_trade_krw"))
-    if max_loss:
-        limits.append({"name": "최대 손실", "krw": max_loss, "shares": shares_for(max_loss, loss_ps),
-                       "how": "%s / (위험 %s + 비용 %.1f)원" % (krx.won(max_loss), p(risk), cost_stop)})
     cap_pct = _f(c.get("max_position_pct"))
-    if cap_pct:
-        cap = budget * cap_pct / 100.0
-        limits.append({"name": "종목 한도", "krw": cap, "shares": shares_for(cap, ref),
-                       "how": "%g%% x %s = %s / %s" % (cap_pct, krx.won(budget), krx.won(cap), p(ref))})
     max_order = _f(c.get("max_order_krw"))
-    if max_order:
-        limits.append({"name": "주문 한도", "krw": max_order, "shares": shares_for(max_order, ref),
-                       "how": "%s / %s" % (krx.won(max_order), p(ref))})
-    limits.append({"name": "현금", "krw": available, "shares": shares_for(available, ref * (1 + cr)),
-                   "how": "%s = %s / (%s + 수수료)" % (cash_note, krx.won(available), p(ref))})
-    qty = max(0, min(l["shares"] for l in limits))
+
+    def limit_table(loss_now, slip_word=""):
+        rows = []
+        if max_loss:
+            rows.append({"name": "최대 손실", "krw": max_loss, "shares": shares_for(max_loss, loss_now),
+                         "how": "%s / (위험 %s + 비용 %.1f%s)원" % (krx.won(max_loss), p(risk), cost_stop, slip_word)})
+        if cap_pct:
+            cap = budget * cap_pct / 100.0
+            rows.append({"name": "종목 한도", "krw": cap, "shares": shares_for(cap, ref),
+                         "how": "%g%% x %s = %s / %s" % (cap_pct, krx.won(budget), krx.won(cap), p(ref))})
+        if max_order:
+            rows.append({"name": "주문 한도", "krw": max_order, "shares": shares_for(max_order, ref),
+                         "how": "%s / %s" % (krx.won(max_order), p(ref))})
+        rows.append({"name": "현금", "krw": available, "shares": shares_for(available, ref * (1 + cr)),
+                     "how": "%s = %s / (%s + 수수료)" % (cash_note, krx.won(available), p(ref))})
+        return rows, max(0, min(r["shares"] for r in rows))
+
+    limits, qty = limit_table(loss_ps)
+    slip = None
+    if book and c.get("use_book_slippage", True) and qty:
+        # 손절 때 지금 매수 잔량 모양으로 팔면 얼마나 밀리는지 재서 주당 손실에 더하고 수량을 다시 정한다
+        slip = liquidity.stop_slippage(book, qty)
+        if slip and slip["per_share"] > 0:
+            limits, qty = limit_table(loss_ps + slip["per_share"], " + 밀림 %.1f" % slip["per_share"])
+    slip_ps = slip["per_share"] if slip else 0.0
+    rr_net = round((target - ref - cost_target) / (loss_ps + slip_ps), 2)
     bound = [l["name"] for l in limits if l["shares"] == qty][0]
     for l in limits:
         l["binds"] = l["name"] == bound
     cost = qty * ref
-    loss_at_stop = qty * risk + krx.trade_costs(ref, stop, qty, cr, tr)["total"] if qty else 0
+    loss_at_stop = qty * (risk + slip_ps) + krx.trade_costs(ref, stop, qty, cr, tr)["total"] if qty else 0
     gain_at_target = qty * (target - ref) - krx.trade_costs(ref, target, qty, cr, tr)["total"] if qty else 0
+    cost_to_risk = (cost_stop + slip_ps) / risk
+    max_ctr = _f(c.get("max_cost_to_risk"))
+    buy = liquidity.buy_cost(book, qty) if book and qty else None
     refusal = None
     if qty == 0:
         if bound == "최대 손실":
@@ -152,6 +167,10 @@ def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=
                        % (krx.won(loss_ps), p(risk), krx.won(max_loss)))
         else:
             refusal = "%s 1주가 %s 로 %s 한도를 넘습니다. 주문 없음." % (sym, krx.won(ref), bound)
+    elif max_ctr and cost_to_risk > max_ctr:
+        refusal = ("손절 때 비용%s이 주당 %.1f원으로 위험 %s원의 %.0f%% 입니다. 한도 %.0f%% 를 넘어, 이 손절 폭에서는 비용이 "
+                   "남는 몫을 먹습니다. 주문 없음. 손절 폭을 넓히거나(그만큼 수량은 줄어듦) 건너뛰세요."
+                   % ("과 예상 밀림" if slip_ps else "", cost_stop + slip_ps, p(risk), 100 * cost_to_risk, 100 * max_ctr))
     elif _f(c.get("min_reward_risk")) and rr_net < float(c["min_reward_risk"]) - 1e-9:
         refusal = ("비용 뺀 손익비 %.2f (목표 %s, 진입 %s, 손절 %s) 가 최소 %g 보다 낮아 trader-kr-risk 가 막습니다. 주문 없음."
                    % (rr_net, p(target), p(ref), p(stop), float(c["min_reward_risk"])))
@@ -166,7 +185,9 @@ def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=
             "max_loss_per_trade_krw": max_loss, "limits": limits, "qty": qty, "bound_by": bound, "cost": cost,
             "max_loss": loss_at_stop, "gain_at_target": gain_at_target,
             "flat_by": plan.get("flat_by") or c.get("flat_by"), "order_type": "limit" if limit is not None else "market",
-            "commission_rate": cr, "sell_tax_rate": tr, "refusal": refusal}
+            "commission_rate": cr, "sell_tax_rate": tr, "cost_to_risk": round(cost_to_risk, 3),
+            "stop_slippage_per_share": round(slip_ps, 1) if slip else None,
+            "stop_unfilled": slip["unfilled"] if slip else None, "book_buy": buy, "refusal": refusal}
 
 
 def order_proposal(s):
@@ -208,6 +229,22 @@ def plan_report(s, order, notes=()):
         L.append("주문 없음: " + s["refusal"])
         L.append("교육과 도구일 뿐 투자 권유가 아닙니다 (not financial advice).")
         return "\n".join(L)
+    b = s.get("book_buy")
+    if b:
+        sp = b["spread"]
+        L.append("호가창: 매수 1호가 %s, 매도 1호가 %s (스프레드 %d칸). 시장가 %d주면 평균 %s 에 체결 추정, 중간가보다 주당 %.1f원 "
+                 "비쌉니다. 중간가·지정가로 들어가면 최대 %s 아낍니다 (안 채워질 수 있음)."
+                 % (p(sp["bid"]), p(sp["ask"]), sp["ticks"], s["qty"], p(round(b["avg"], 1)), b["over_mid_per_share"],
+                    krx.won(b["mid_saving"])))
+    if s.get("stop_slippage_per_share") is not None:
+        if s["stop_slippage_per_share"] < 0.05 and not s.get("stop_unfilled"):
+            L.append("손절 때 %d주는 지금 매수 1호가 잔량만으로 다 팔려 밀림이 없다고 봤습니다 (급락 때는 잔량이 얇아질 수 있음)."
+                     % s["qty"])
+        else:
+            L.append("손절 때 지금 매수 잔량 모양으로 %d주를 팔면 손절가보다 주당 %.1f원 아래에서 평균 체결 추정. 그만큼 손실에 넣었습니다%s."
+                     % (s["qty"], s["stop_slippage_per_share"],
+                        (" (보이는 잔량으로 %d주를 못 채움)" % s["stop_unfilled"]) if s.get("stop_unfilled") else ""))
+    L.append("손절 때 비용%s: 주당 위험의 %.0f%%." % ("과 밀림" if s.get("stop_slippage_per_share") else "", 100 * s["cost_to_risk"]))
     L.append("수량: %s %d주 = %s (%s 기준). 손절 때 손실 %s, 목표 때 이익 %s (둘 다 비용 뺀 추정)." % (
         s["symbol"], s["qty"], krx.won(s["cost"]), p(s["entry"]), krx.won(s["max_loss"]), krx.won(s["gain_at_target"])))
     L.append("손절은 약속이 아닙니다. 급락, 하한가, VI 단일가 중에는 %s 보다 낮게 체결될 수 있습니다." % p(s["stop"]))
@@ -260,7 +297,15 @@ def run(a):
     if a.portfolio and os.path.exists(a.portfolio):
         pf = krx.read_json(a.portfolio, "계좌")
         cash = _f(pf.get("cash")) if isinstance(pf, dict) else None
-    s = size_trade(plan, cfg, a.budget, limit, price, cash, today)
+    book = None
+    if a.book:
+        book = krx.read_json(a.book, "호가창 파일")
+    elif not a.no_network and plan.get("date") == today and cfg.get("use_book_slippage", True):
+        try:
+            book = data.client().orderbook(krx.norm_symbol(plan.get("symbol")))
+        except (toss.TossError, krx.KrxError) as e:
+            notes.append("호가창을 받지 못해 체결 비용은 넣지 않았습니다: %s" % e)
+    s = size_trade(plan, cfg, a.budget, limit, price, cash, today, book)
     order = order_proposal(s)
     if order and a.write:
         write_orders(a.write, [order], cfg, "trader-kr/plan.json (%s %s %s)" % (s["symbol"], s["setup"] or "계획", s["date"]), now)
@@ -281,6 +326,7 @@ def main(argv=None):
     ap.add_argument("--budget", type=float, help="설정의 예산 대신")
     ap.add_argument("--limit", nargs="?", const="plan", metavar="PRICE", help="지정가 (가격 없으면 계획 진입가)")
     ap.add_argument("--price", type=float, help="지금 가격 (주면 토스증권을 부르지 않음)")
+    ap.add_argument("--book", help="호가창 JSON 파일 (토스 orderbook 형식, 네트워크 없이)")
     ap.add_argument("--portfolio", default="trader-kr/portfolio.json", help="계좌 현금 (있으면 수량 상한)")
     ap.add_argument("--no-network", action="store_true")
     ap.add_argument("--now", help='이 한국 시간인 것처럼, 예: "2026-10-28 10:15"')
