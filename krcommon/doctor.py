@@ -104,6 +104,15 @@ def run(client, symbol, out, env=None, today=None):
     except (toss.TossError, krx.KrxError) as e:
         out("4. 1분봉: 실패. %s" % e)
         ok = False
+    try:
+        from krcommon import keys
+        extra = []
+        for kind, label in (("krx", "KRX Open API (장 전 스캔)"), ("dart", "OpenDART (공시 경고)")):
+            desc, found = keys.where(kind, env)
+            extra.append("%s %s" % (label, "있음" if found else "없음"))
+        out("6. 선택 키: %s. KRX 승인 확인은 python krcommon/keys.py krx --check" % ", ".join(extra))
+    except Exception:
+        pass
     out("호출 %d번. %s" % (client.calls, "모두 통과했습니다." if ok else "실패한 항목을 고친 뒤 다시 돌리세요."))
     return ok
 

@@ -59,10 +59,11 @@ cp -r day-trader-skill-kr/trader-kr-* day-trader-skill-kr/krcommon ~/.claude/ski
    `client_id` 와 `client_secret` 을 받는다.
 2. 같은 메뉴의 허용 IP 관리에 이 컴퓨터의 공인 IP 를 등록한다. 등록하지 않은 IP 에서 부르면 403 으로 막힌다.
    집 인터넷의 IP 가 바뀌면 다시 등록해야 한다.
-3. 키를 저장소 밖 파일 `~/.tossinvest/credentials.json` 에 둔다. 채팅에는 붙여 넣지 않는다.
+3. 키를 등록한다. 본인 터미널에서 아래 명령을 돌리고 client_id 와 client_secret 을 붙여 넣는다. 입력은 화면에
+   보이지 않고, 저장소 밖 `~/.tossinvest/credentials.json` 에 저장된다. 채팅에는 붙여 넣지 않는다.
 
-   ```json
-   {"client_id": "tsck_live_...", "client_secret": "..."}
+   ```bash
+   python krcommon/keys.py toss
    ```
 
    환경변수 `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET` 이나, 파일 위치를 가리키는 `TOSS_CREDENTIALS` 도 된다.
@@ -73,7 +74,8 @@ cp -r day-trader-skill-kr/trader-kr-* day-trader-skill-kr/krcommon ~/.claude/ski
    python krcommon/doctor.py
    ```
 
-5. (선택) OpenDART 키를 `DART_API_KEY` 환경변수에 넣으면 그날 공시를 경고한다. 없으면 확인하지 않았다고 말한다.
+5. (선택) OpenDART 키를 등록하면 그날 공시를 경고한다 (`python krcommon/keys.py dart`, 또는 `DART_API_KEY` 환경변수).
+   없으면 확인하지 않았다고 말한다. 어떤 키가 어디 있는지는 `python krcommon/keys.py status` 로 본다 (값은 찍지 않는다).
 
 6. 설정 파일을 만든다: `trader-kr-budget/config.example.json` 을 `trader-kr/config.json` 으로 복사하고 숫자를 바꾼다.
    `commission_rate` 0.00015 는 토스증권 문서의 예시 값이다. 본인 계좌 수수료율로 바꾼다.
@@ -94,7 +96,14 @@ KRX 종가로 재야 하므로, KRX Open API 키가 있으면 한국거래소 �
 1. [KRX Open API](https://openapi.krx.co.kr) 에 회원가입하고 로그인한다.
 2. 마이페이지에서 API 인증키를 신청한다. 승인되면 키가 나온다.
 3. 서비스 이용에서 주식의 "유가증권 일별매매정보" 와 "코스닥 일별매매정보" 를 각각 이용신청한다. 서비스마다 승인이 따로다.
-4. 키를 환경변수 `KRX_API_KEY` 나 `~/.krx/api_key` 파일(한 줄)에 둔다.
+4. 키를 등록한다. 본인 터미널에서 아래 명령을 돌리고 키를 붙여 넣으면 `~/.krx/api_key` 에 저장하고, 두 서비스를
+   하나씩 불러 승인됐는지 바로 알려 준다. 환경변수 `KRX_API_KEY` 를 써도 되고, 둘 다 있으면 환경변수가 먼저다.
+
+   ```bash
+   python krcommon/keys.py krx
+   ```
+
+   저장하지 않고 지금 키의 승인만 보려면 `python krcommon/keys.py krx --check`.
 
 한 번 부르면 그날 한 시장 전 종목이 온다. 자료는 매일 08:00 에 전 거래일 것으로 갱신되고, 키당 하루 10,000건까지다.
 KRX 응답이 한 번에 몇 초씩 걸려서 날짜 여섯 개씩 동시에 받는다. 처음 60 거래일을 받는 데 86초, 그다음부터는 캐시에서
@@ -179,7 +188,8 @@ trader-kr-timemachine/  SKILL.md, timemachine.py
 trader-kr-budget/       SKILL.md, size.py, config.example.json
 trader-kr-risk/         SKILL.md, check.py
 krcommon/               krx.py (시장 규칙), toss.py (토스증권 시세), bars.py (1분봉 캐시, 5분봉), data.py,
-                        dart.py (그날 공시), krxdata.py (KRX 공식 일봉), doctor.py (연결 점검)
+                        dart.py (그날 공시), krxdata.py (KRX 공식 일봉), keys.py (키 등록),
+                        doctor.py (연결 점검)
 tests/                  unittest, 합성 자료, 가짜 토스증권 서버
 ```
 

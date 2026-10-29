@@ -84,29 +84,70 @@ def parse_row(r, market):
             "value": num(r.get("ACC_TRDVAL")), "mktcap": num(r.get("MKTCAP"))}
 
 
+SERVICE = {"KOSPI": "유가증권 일별매매정보", "KOSDAQ": "코스닥 일별매매정보"}
+
+
+def fetch_market(day, market, key, transport=None):
+    """그날 한 시장 전 종목 {종목: 행}. 휴장일이면 빈 사전. 키나 이용신청 문제면 KrxDataError."""
+    transport = transport or _http
+    ep = dict(MARKETS)[market]
+    status, text = transport(BASE + ep + "?basDd=" + day.strftime("%Y%m%d"),
+                             {"AUTH_KEY": key, "Accept": "application/json", "User-Agent": "day-trader-skill-kr/0.1"})
+    if status in (401, 403):
+        raise KrxDataError("KRX 가 키를 받지 않았습니다 (HTTP %s). openapi.krx.co.kr 에서 키 승인과 '%s' 이용신청이 "
+                           "됐는지 확인하세요" % (status, SERVICE[market]))
+    if status != 200:
+        raise KrxDataError("KRX %s 응답 HTTP %s" % (ep, status))
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        raise KrxDataError("KRX 응답이 JSON 이 아닙니다 (%s)" % ep)
+    if "OutBlock_1" not in doc and (doc.get("respCode") or doc.get("respMsg")):
+        # 승인 안 된 서비스나 잘못된 키는 200 에 오류 문구로 올 수도 있다
+        raise KrxDataError("KRX 가 '%s' 호출을 거절했습니다 (%s %s). 키 승인과 이용신청을 확인하세요"
+                           % (SERVICE[market], doc.get("respCode") or "", doc.get("respMsg") or ""))
+    out = {}
+    for r in doc.get("OutBlock_1") or []:
+        row = parse_row(r, market)
+        if row:
+            row["date"] = day.isoformat()
+            out[row["symbol"]] = row
+    return out
+
+
 def fetch_day(day, key, transport=None):
     """그날 두 시장 전 종목 {종목: 행}. 휴장일이면 빈 사전."""
-    transport = transport or _http
     out = {}
-    for market, ep in MARKETS:
-        status, text = transport(BASE + ep + "?basDd=" + day.strftime("%Y%m%d"),
-                                 {"AUTH_KEY": key, "Accept": "application/json",
-                                  "User-Agent": "day-trader-skill-kr/0.1"})
-        if status in (401, 403):
-            raise KrxDataError("KRX 가 키를 받지 않았습니다 (HTTP %s). openapi.krx.co.kr 에서 키 승인과 "
-                               "'%s 일별매매정보' 이용신청이 됐는지 확인하세요" % (status, "유가증권" if market == "KOSPI"
-                                                                         else "코스닥"))
-        if status != 200:
-            raise KrxDataError("KRX %s 응답 HTTP %s" % (ep, status))
+    for market, _ in MARKETS:
+        out.update(fetch_market(day, market, key, transport))
+    return out
+
+
+def check_key(key, now_kst=None, transport=None, lookback=10):
+    """키로 두 서비스를 하나씩 불러 본다. [{market, service, ok, date, rows, message}]."""
+    now_kst = now_kst or krx.kst_now()
+    out = []
+    for market, _ in MARKETS:
+        rec = {"market": market, "service": SERVICE[market], "ok": False, "date": None, "rows": 0, "message": ""}
+        d = now_kst.date()
+        tried = 0
         try:
-            doc = json.loads(text)
-        except ValueError:
-            raise KrxDataError("KRX 응답이 JSON 이 아닙니다 (%s)" % ep)
-        for r in doc.get("OutBlock_1") or []:
-            row = parse_row(r, market)
-            if row:
-                row["date"] = day.isoformat()
-                out[row["symbol"]] = row
+            while tried < lookback:
+                if d.weekday() < 5 and published(d, now_kst):
+                    tried += 1
+                    rows = fetch_market(d, market, key, transport)
+                    if rows:
+                        rec.update(ok=True, date=d.isoformat(), rows=len(rows),
+                                   message="%s %s 자료 %s종목을 받았습니다" % (SERVICE[market], d.isoformat(),
+                                                                         "{:,}".format(len(rows))))
+                        break
+                d -= datetime.timedelta(days=1)
+            if not rec["ok"]:
+                rec["message"] = ("%s: 최근 %d 거래일 자료가 비어 있습니다. 이용신청 승인 전이면 이렇게 나올 수 있습니다"
+                                  % (SERVICE[market], tried))
+        except KrxDataError as e:
+            rec["message"] = str(e)
+        out.append(rec)
     return out
 
 

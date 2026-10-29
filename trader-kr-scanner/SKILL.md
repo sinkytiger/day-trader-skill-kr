@@ -54,7 +54,8 @@ daily (종가만으로, 원본과 같은 계산):
 | 과매도 | RSI 14 (Wilder) 30 미만 |
 | 과매도 반등 | 어제 RSI 14 가 30 미만이고 오늘 올라서 끝남 |
 
-일봉은 `KRX_API_KEY` 가 있으면 KRX Open API 의 한국거래소 공식 종가를 쓴다 (`--source krx`). 없으면 토스 일봉을 쓰고
+일봉은 KRX Open API 키가 있으면 한국거래소 공식 종가를 쓴다 (`--source krx`). 키 등록은 사용자가 본인 터미널에서
+`python krcommon/keys.py krx` 로 한다 (Claude 가 키를 받아 입력하지 않는다). 없으면 토스 일봉을 쓰고
 경고한다: 토스 일봉 종가는 KRX+NXT 통합이라 20:00 NXT 애프터마켓 마지막 가격이고, KRX 종가와 1% 넘게 다를 수 있다.
 KRX 자료는 매일 08:00 에 전 거래일 것으로 올라온다. 처음 60 거래일을 받는 데 1분 반쯤 걸리고, 그다음부터는 몇 초다.
 `--universe` 로 KRX 전 종목(약 2,500 보통주)을 훑어도 KRX 호출은 늘지 않는다. 결과의 `level` 은 20일 최고 종가라 `/trader-kr-entry --setup level`

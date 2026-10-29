@@ -34,9 +34,16 @@ class DartError(Exception):
     pass
 
 
-def api_key(env=None):
+def api_key(env=None, home=None):
+    """환경변수 DART_API_KEY, 없으면 ~/.dart/api_key 파일 (krcommon/keys.py dart 가 씀)."""
     env = os.environ if env is None else env
     k = (env.get("DART_API_KEY") or "").strip()
+    if k:
+        return k
+    path = os.path.join(home or os.path.expanduser("~"), ".dart", "api_key")
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            k = fh.read().strip()
     return k or None
 
 
