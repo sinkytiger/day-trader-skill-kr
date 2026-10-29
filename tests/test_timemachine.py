@@ -84,6 +84,34 @@ class Run(unittest.TestCase):
             self.assertTrue(all(30200 - 1e-6 <= x <= 30700 + 1e-6 for x in path[1:]))
         self.assertEqual(m["p_target"], 0.0)               # 목표가가 상한 밖이라 닿을 수 없다
 
+    def test_block_replay_is_reported_and_repeatable(self):
+        b = self.doc["blocks"]
+        self.assertEqual(b["block"], 6)
+        self.assertAlmostEqual(b["p_target"] + b["p_stop"] + b["p_neither"], 1.0, places=6)
+        again = tm.time_machine(self.chart, self.plan, NOW, replays=2000)["blocks"]
+        self.assertEqual(again, b)
+        self.assertIsNone(tm.time_machine(self.chart, self.plan, NOW, replays=200, block=0)["blocks"])
+        self.assertTrue(any("30분 묶음 재생" in x for x in tm.report(self.doc)))
+
+    def test_history_has_intervals_and_its_own_window(self):
+        h = self.doc["history"]
+        lo, hi = h["target_share_ci"]
+        self.assertLessEqual(lo, h["target_share"])
+        self.assertGreaterEqual(hi, h["target_share"])
+        self.assertAlmostEqual(h["break_even_share"], 1 / 3.0, places=3)
+        self.assertLessEqual(h["avg_R_ci"][0], h["avg_R"])
+        self.assertGreaterEqual(h["avg_R_ci"][1], h["avg_R"])
+        split = tm.time_machine(self.chart, self.plan, NOW, replays=200, pool_n=30, history_n=61)
+        self.assertEqual(split["mc"]["pool_sessions"], 30)
+        self.assertEqual(split["history"]["sessions"], 61)
+
+    def test_interval_helpers(self):
+        lo, hi = tm.wilson(13, 28)
+        self.assertTrue(lo < 13 / 28.0 < hi)
+        self.assertIsNone(tm.wilson(0, 0))
+        self.assertIsNone(tm.bootstrap_mean([1.0]))
+        self.assertEqual(tm.bootstrap_mean([2.0, 2.0, 2.0]), (2.0, 2.0))
+
     def test_report_and_chart_render(self):
         lines = tm.report(self.doc)
         self.assertTrue(any("목표 먼저" in x for x in lines))
@@ -111,11 +139,13 @@ class Command(unittest.TestCase):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             code = tm.main(["run", "--offline", "SYN001.json", "--now", "2026-10-28 10:16", "--replays", "500",
-                            "--sessions", "40", "--write"])
+                            "--sessions", "30", "--history-sessions", "40", "--write"])
         self.assertEqual(code, 0, out.getvalue())
         with open("trader-kr/timemachine.json", encoding="utf-8") as fh:
             doc = json.load(fh)
-        self.assertEqual(doc["mc"]["pool_sessions"], 40)
+        self.assertEqual(doc["mc"]["pool_sessions"], 30)
+        self.assertEqual(doc["history"]["sessions"], 40)
+        self.assertIn("95% 구간", out.getvalue())
         self.assertIn("다시 돌리려면 --seed 19", out.getvalue())
 
 

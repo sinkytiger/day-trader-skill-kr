@@ -33,6 +33,13 @@
      지난 온전한 거래일마다 다시 적용. 범위를 넘어 처음 끝난 봉 종가가 진입,
      같은 손절 먼저 규칙.
 
+원본에 없는 보조 결과 두 가지 (판정은 원본 방식으로만 낸다):
+  - 30분 묶음 재생 (--block 6): 봉을 하나씩 따로 고르지 않고, 같은 거래일의 연속 봉 6개씩
+    이어 붙인다. 같은 날 안의 변동성 군집과 짧은 추세가 남는다. 원본 방식과 목표·손절 비율이
+    5%p 넘게 다르면 알린다.
+  - 과거 재적용은 재료보다 긴 기간(--history-sessions, 기본 120 거래일)에 하고, 목표 비율의 95%
+    윌슨 구간과 평균 R 의 95% 부트스트랩 구간을 붙인다. 구간이 본전 비율을 포함하면 그렇다고 말한다.
+
 판정: 손절이나 목표에 닿은 재생 중 목표 비율 target / (target + stop) 을 계획 R 의
 본전 비율 1 / (1 + R) (1R 이면 50%, 2R 이면 33%) 와 비교한다.
   5%p 미만 "동전 던지기에 가깝다"(1R) / "본전에 가깝다"(그 밖)
@@ -59,7 +66,7 @@ import statistics
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
-from krcommon import bars as kbars, data, krx  # noqa: E402
+from krcommon import bars as kbars, dart, data, krx  # noqa: E402
 
 STEP = 300
 OPEN_MIN = 9 * 60
@@ -234,6 +241,86 @@ def simulate(pool, entry, stop, target, k, last, replays=10000, seed=19, window=
     }
 
 
+# ---------------------------------------------------------------- 묶음 재생 (원본에 없는 보조 방식)
+
+def simulate_blocks(sessions, entry, stop, target, k, last, replays=10000, seed=19, block=6, limits=None,
+                    commission_rate=0.0, sell_tax_rate=0.0):
+    """봉을 하나씩 따로 고르는 대신, block 개(기본 6개 = 30분)씩 같은 거래일의 연속 봉을 가져온다.
+    시각은 맞춘다 (자리 i 에는 그날의 자리 i 봉). 같은 날 안의 변동성 군집과 짧은 추세가 남는다.
+    결과 숫자만 돌려준다 (경로 그림은 원본 방식으로 그린다)."""
+    if block < 1:
+        raise TMError("--block 은 1 이상입니다")
+    ratios = []
+    for _, Dd in sessions:
+        row = [None] * SESSION_BARS
+        for i in range(1, SESSION_BARS):
+            pc = Dd[i - 1]["c"]
+            row[i] = (Dd[i]["h"] / pc, Dd[i]["l"] / pc, Dd[i]["c"] / pc)
+        ratios.append(row)
+    risk = entry - stop
+    r_target = (target - entry) / risk
+    lo_lim, hi_lim = limits if limits else (None, None)
+
+    def clamp(x):
+        if hi_lim is not None and x > hi_lim:
+            return hi_lim
+        if lo_lim is not None and x < lo_lim:
+            return lo_lim
+        return x
+
+    rng = random.Random(seed)
+    n_s = len(ratios)
+    cnt = {"target": 0, "stop": 0, "close": 0}
+    green, Rs, Rn = 0, [], []
+    for _ in range(replays):
+        px, outcome, s = entry, None, 0
+        for i in range(k + 1, last + 1):
+            if (i - k - 1) % block == 0:
+                s = rng.randrange(n_s)
+            h, l, c = ratios[s][i]
+            hi, lo, cl = clamp(px * h), clamp(px * l), clamp(px * c)
+            if outcome is None:
+                if lo <= stop:
+                    outcome = "stop"
+                elif hi >= target:
+                    outcome = "target"
+            px = cl
+        o = outcome or "close"
+        cnt[o] += 1
+        if o == "target" or (o == "close" and px > entry):
+            green += 1
+        exitp = target if o == "target" else stop if o == "stop" else px
+        Rs.append(r_target if o == "target" else -1.0 if o == "stop" else (px - entry) / risk)
+        Rn.append((exitp - entry - (entry * commission_rate + exitp * (commission_rate + sell_tax_rate))) / risk)
+    return {"block": block, "replays": replays, "seed": seed,
+            "p_target": round(cnt["target"] / float(replays), 4), "p_stop": round(cnt["stop"] / float(replays), 4),
+            "p_neither": round(cnt["close"] / float(replays), 4), "p_green": round(green / float(replays), 4),
+            "avg_R": round(statistics.mean(Rs), 3), "avg_R_net": round(statistics.mean(Rn), 3)}
+
+
+# ---------------------------------------------------------------- 불확실성
+
+def wilson(k, n, z=1.96):
+    """k / n 비율의 95% 윌슨 구간 (n = 0 이면 None)."""
+    if n <= 0:
+        return None
+    p = k / float(n)
+    d = 1 + z * z / n
+    mid = (p + z * z / (2 * n)) / d
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return round(max(0.0, mid - half), 4), round(min(1.0, mid + half), 4)
+
+
+def bootstrap_mean(xs, seed=19, n=2000):
+    """평균의 95% 부트스트랩 구간 (2개 미만이면 None)."""
+    if len(xs) < 2:
+        return None
+    rng = random.Random(seed)
+    m = len(xs)
+    means = sorted(sum(xs[rng.randrange(m)] for _ in range(m)) / float(m) for _ in range(n))
+    return round(means[int(0.025 * n)], 3), round(means[min(n - 1, int(0.975 * n))], 3)
+
+
 # ---------------------------------------------------------------- 과거 재적용
 
 def opening_range(Dd, n):
@@ -258,7 +345,7 @@ def history_replay(sessions, rule, last, commission_rate=0.0, sell_tax_rate=0.0)
         kk = next((i for i in range(n, last + 1) if Dd[i]["c"] > oh), None)
         if kk is None:
             continue
-        e = krx.round_tick(Dd[kk]["c"])
+        e = krx.ceil_tick(Dd[kk]["c"])         # 호가 사이 체결가는 매수 호가로 올린다
         s = rule_stop(rule, oh, ol, e)
         risk = e - s
         if risk <= 0:
@@ -278,14 +365,19 @@ def history_replay(sessions, rule, last, commission_rate=0.0, sell_tax_rate=0.0)
         Rn = (exitp - e - (e * commission_rate + exitp * (commission_rate + sell_tax_rate))) / float(risk)
         trades.append({"date": d, "time": clock(OPEN_MIN + 5 * (kk + 1)), "entry": e, "stop": s, "target": t,
                        "outcome": oc or "close", "R": round(R, 2), "R_net": round(Rn, 2)})
+    n_t = sum(1 for x in trades if x["outcome"] == "target")
+    n_s = sum(1 for x in trades if x["outcome"] == "stop")
     return {
-        "sessions": len(sessions), "triggered": len(trades),
-        "target": sum(1 for x in trades if x["outcome"] == "target"),
-        "stop": sum(1 for x in trades if x["outcome"] == "stop"),
+        "sessions": len(sessions), "triggered": len(trades), "target": n_t, "stop": n_s,
         "close": sum(1 for x in trades if x["outcome"] == "close"),
         "green": sum(1 for x in trades if x["R"] > 0),
         "avg_R": round(statistics.mean(x["R"] for x in trades), 3) if trades else None,
         "avg_R_net": round(statistics.mean(x["R_net"] for x in trades), 3) if trades else None,
+        "target_share": round(n_t / float(n_t + n_s), 4) if n_t + n_s else None,
+        "target_share_ci": wilson(n_t, n_t + n_s),
+        "break_even_share": round(1.0 / (1.0 + rule["target_r"]), 4),
+        "avg_R_ci": bootstrap_mean([x["R"] for x in trades]),
+        "avg_R_net_ci": bootstrap_mean([x["R_net"] for x in trades]),
         "rule": rule, "trades": trades,
     }
 
@@ -452,7 +544,12 @@ def verdict_notes(mc):
     return notes
 
 
-def time_machine(chart, plan, now_kst, replays=10000, seed=19, window=2, until=None, cfg=None):
+BLOCK_GAP = 0.05     # 묶음 재생과 원본 방식의 목표·손절 비율이 5%p 넘게 다르면 알린다
+
+
+def time_machine(chart, plan, now_kst, replays=10000, seed=19, window=2, until=None, cfg=None,
+                 pool_n=None, history_n=None, block=6):
+    """pool_n: 재생 재료로 쓸 최근 거래일 수 (None = 전부), history_n: 과거 재적용에 쓸 수 (None = 전부)."""
     if not 1 <= replays <= 1000000:
         raise TMError("--replays 는 1 ~ 1,000,000 입니다")
     if not 0 <= window <= 10:
@@ -484,7 +581,9 @@ def time_machine(chart, plan, now_kst, replays=10000, seed=19, window=2, until=N
     tick = krx.tick_size(plan["entry"])
     if not eb["l"] - tick <= plan["entry"] <= eb["h"] + tick:
         warn.append("계획 진입가 %s 가 그 봉의 범위 %s ~ %s 밖입니다" % (p(plan["entry"]), p(eb["l"]), p(eb["h"])))
-    sessions, short = full_sessions(days, plan["date"])
+    all_sessions, short = full_sessions(days, plan["date"])
+    sessions = all_sessions[-pool_n:] if pool_n else all_sessions
+    hist_sessions = all_sessions[-history_n:] if history_n else all_sessions
     if len(sessions) < MIN_SESSIONS:
         raise TMError("%s 의 %s 전 온전한 거래일이 %d개뿐입니다. 타임머신은 %d개 이상이 필요합니다"
                       % (sym, plan["date"], len(sessions), MIN_SESSIONS))
@@ -506,13 +605,15 @@ def time_machine(chart, plan, now_kst, replays=10000, seed=19, window=2, until=N
     mc = dict(mc, until=clock(until_min), pool_sessions=len(sessions), pool_from=sessions[0][0],
               pool_to=sessions[-1][0], limits_source=lim_src, commission_rate=cr, sell_tax_rate=tr,
               band_times=[clock(OPEN_MIN + 5 * (j + 1)) for j in range(k, last + 1)])
+    blocks = simulate_blocks(sessions, plan["entry"], plan["stop"], plan["target"], k, last, replays, seed, block,
+                             limits, cr, tr) if block and block > 1 else None
     rule = resolve_rule(plan, entry_day)
     plan_out = {kk: v for kk, v in plan.items() if v is not None}
     if rule:
         plan_out["stop_rule"] = rule["stop_rule"]
-        history = history_replay(sessions, rule, last, cr, tr)
+        history = history_replay(hist_sessions, rule, last, cr, tr)
     else:
-        history = {"sessions": len(sessions), "triggered": 0, "rule": None, "trades": [],
+        history = {"sessions": len(hist_sessions), "triggered": 0, "rule": None, "trades": [],
                    "note": "건너뜀: 과거 재적용은 시가 범위 돌파(orb)만 압니다. 이 계획은 %r 셋업입니다" % plan["setup"]}
     lb = chart["bars"][-1]
     return {
@@ -520,11 +621,35 @@ def time_machine(chart, plan, now_kst, replays=10000, seed=19, window=2, until=N
         "source": chart.get("source"),
         "data": {"symbol": sym, "interval": "5m (1분봉을 묶음)",
                  "last_bar": krx.kst_of(lb["t"] + 60).strftime("%Y-%m-%d %H:%M"), "short_sessions_left_out": short},
-        "plan": plan_out, "mc": mc, "history": history, "verdict": verdict(mc), "verdict_notes": verdict_notes(mc),
+        "plan": plan_out, "mc": mc, "blocks": blocks, "history": history, "verdict": verdict(mc),
+        "verdict_notes": verdict_notes(mc) + block_notes(mc, blocks) + history_notes(history),
         "warnings": warn,
         "note": ("%s 의 최근 온전한 거래일 %d개로 만든 모의입니다. 예측이 아닙니다: 실적, 공시, 거래정지, VI 는 "
                  "그 거래일들에 없던 일을 만들 수 있습니다. 같은 시드면 같은 숫자입니다." % (sym, len(sessions))),
     }
+
+
+def block_notes(mc, b):
+    if not b:
+        return []
+    d_t, d_s = b["p_target"] - mc["p_target"], b["p_stop"] - mc["p_stop"]
+    if max(abs(d_t), abs(d_s)) > BLOCK_GAP:
+        return ["30분 묶음 재생은 목표 먼저 %.1f%%, 손절 먼저 %.1f%% 로 원본 방식과 %.0f%%p 넘게 다릅니다. 봉을 따로 고르는 "
+                "가정이 결과를 바꾸니 두 숫자를 같이 보세요." % (100 * b["p_target"], 100 * b["p_stop"], 100 * BLOCK_GAP)]
+    return []
+
+
+def history_notes(h):
+    if not h.get("rule") or not h.get("target_share_ci"):
+        return []
+    lo, hi = h["target_share_ci"]
+    be = h["break_even_share"]
+    if lo <= be <= hi:
+        return ["과거 재적용의 목표 비율 %.0f%% 는 95%% 구간 %.0f~%.0f%% 가 본전 %.0f%% 를 포함합니다. 표본으로는 본전과 "
+                "구별되지 않습니다." % (100 * h["target_share"], 100 * lo, 100 * hi, 100 * be)]
+    side = "위" if lo > be else "아래"
+    return ["과거 재적용의 목표 비율 %.0f%% (95%% 구간 %.0f~%.0f%%) 는 본전 %.0f%% %s 입니다."
+            % (100 * h["target_share"], 100 * lo, 100 * hi, 100 * be, side)]
 
 
 def pc(x):
@@ -561,6 +686,11 @@ def report(doc):
            krx.pct_str(m["commission_rate"], 3), krx.pct_str(m["sell_tax_rate"], 2)),
         "",
     ]
+    b = doc.get("blocks")
+    if b:
+        lines += ["30분 묶음 재생 (같은 거래일 봉 %d개씩 이어 붙임, 변동성 군집과 짧은 추세를 남김):" % b["block"],
+                  "  목표 먼저 %s, 손절 먼저 %s, 둘 다 아님 %s. 평균 R %+.3f, 비용 뺀 평균 R %+.3f."
+                  % (pc(b["p_target"]), pc(b["p_stop"]), pc(b["p_neither"]), b["avg_R"], b["avg_R_net"]), ""]
     if h.get("rule"):
         ru = h["rule"]
         sw = {"or_mid": "시가 범위 중간값", "or_low": "시가 범위 저가"}.get(ru["stop_rule"],
@@ -570,6 +700,9 @@ def report(doc):
                          "목표 %d, 손절 %d, 둘 다 아님 %d. 평균 R %+.3f, 비용 뺀 평균 R %+.3f."
                          % (ru["or_minutes"], sw, ru["target_r"], h["sessions"], h["triggered"], h["target"], h["stop"],
                             h["close"], h["avg_R"], h["avg_R_net"]))
+            if h.get("avg_R_ci"):
+                lines.append("      평균 R 95%% 구간 %+.3f ~ %+.3f, 비용 뺀 평균 R 95%% 구간 %+.3f ~ %+.3f (부트스트랩)."
+                             % (h["avg_R_ci"][0], h["avg_R_ci"][1], h["avg_R_net_ci"][0], h["avg_R_net_ci"][1]))
         else:
             lines.append("과거: 같은 규칙은 그 %d 거래일 동안 한 번도 신호가 나지 않았습니다." % h["sessions"])
     else:
@@ -635,7 +768,10 @@ def compute(a):
     day = datetime.date.fromisoformat(plan["date"])
     if a.sessions < MIN_SESSIONS:
         raise TMError("--sessions 는 %d 이상이어야 합니다" % MIN_SESSIONS)
-    start = datetime.datetime.combine(day - datetime.timedelta(days=int(a.sessions * 1.55) + 12), datetime.time(0, 0))
+    if a.history_sessions < 1:
+        raise TMError("--history-sessions 는 1 이상입니다")
+    need = max(a.sessions, a.history_sessions)
+    start = datetime.datetime.combine(day - datetime.timedelta(days=int(need * 1.55) + 12), datetime.time(0, 0))
     end = min(now, datetime.datetime.combine(day, datetime.time(15, 31)))
     progress = None if a.json else (lambda msg: print(msg, file=sys.stderr))
     if progress and not a.offline:
@@ -646,12 +782,19 @@ def compute(a):
     except data.DataError as e:
         raise TMError(str(e))
     full = full_sessions(day_slots(chart), plan["date"])[0]
-    if len(full) > a.sessions:
-        # 요청보다 많이 받았으면 최근 a.sessions 개 거래일만 남긴다
-        cut = full[-a.sessions][0]
+    if len(full) > need:
+        # 요청보다 많이 받았으면 필요한 만큼만 남긴다
+        cut = full[-need][0]
         lo = krx.ts_of(datetime.datetime.combine(datetime.date.fromisoformat(cut), datetime.time(0, 0)))
         chart = dict(chart, bars=[b for b in chart["bars"] if b["t"] >= lo])
-    return time_machine(chart, plan, now, a.replays, a.seed, a.window, a.until, cfg)
+    doc = time_machine(chart, plan, now, a.replays, a.seed, a.window, a.until, cfg,
+                       pool_n=a.sessions, history_n=a.history_sessions, block=a.block)
+    if not a.offline:
+        rows, note = dart.check(plan["symbol"], day, now_kst=now)
+        if note:
+            doc["warnings"].append(note)
+        doc["disclosures"] = rows
+    return doc
 
 
 def cmd_run(a):
@@ -702,7 +845,10 @@ def main(argv=None):
         q.add_argument("--replays", type=int, default=10000)
         q.add_argument("--seed", type=int, default=19)
         q.add_argument("--window", type=int, default=2, help="같은 시각 +- 이 봉 수 안에서 고름")
-        q.add_argument("--sessions", type=int, default=60, help="재료로 쓸 지난 거래일 수 (기본 60)")
+        q.add_argument("--sessions", type=int, default=60, help="재생 재료로 쓸 지난 거래일 수 (기본 60)")
+        q.add_argument("--history-sessions", type=int, default=120,
+                       help="과거 재적용에 쓸 지난 거래일 수 (기본 120, 국내 1분봉은 2022-11-23 부터)")
+        q.add_argument("--block", type=int, default=6, help="묶음 재생의 봉 수 (기본 6 = 30분, 0 이면 끔)")
         q.add_argument("--until", help="재생을 끝낼 시각 (기본 15:20, 접속매매 끝)")
         q.add_argument("--config", default="trader-kr/config.json")
         q.add_argument("--offline", metavar="FILE", help="저장된 1분봉 파일, 네트워크 없이")

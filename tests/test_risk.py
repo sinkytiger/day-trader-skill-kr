@@ -130,6 +130,12 @@ class Check(unittest.TestCase):
         lim = dict(ORDER, type="limit", limit_price=30450)
         self.assertEqual(run([lim], st=st)["block"], 1)
 
+    def test_a_late_signal_is_warned_not_blocked(self):
+        o = dict(ORDER, plan=dict(ORDER["plan"], entry_time="09:20"))
+        r = run([o])
+        self.assertEqual(r["pass"], 1)
+        self.assertTrue(any("신호 뒤 56분" in x for x in r["results"][0]["warnings"]))
+
     def test_yesterdays_plan_is_blocked(self):
         o = dict(ORDER, plan=dict(ORDER["plan"], date="2026-10-27"))
         r = run([o])

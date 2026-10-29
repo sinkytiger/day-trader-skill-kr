@@ -11,7 +11,7 @@ import unittest
 from _load import load
 import synth
 from fake_toss import FakeToss, stock_info
-from krcommon import data, toss
+from krcommon import dart, data, toss
 
 scan = load("trader-kr-scanner", "scan")
 entry = load("trader-kr-entry", "entry")
@@ -48,10 +48,16 @@ class Online(unittest.TestCase):
         self.fake = f
         data.set_client(toss.Client(credentials=("tsck_live_test", "s"), transport=f, sleep=lambda s: None,
                                     token_path=os.path.join(self.tmp, "token.json")))
+        # 진짜 DART 를 부르지 않게 가짜를 끼운다 (실제 환경변수의 키도 쓰지 않음)
+        self._dart = (dart.api_key, dart._http)
+        dart.api_key = lambda env=None: "test-key"
+        dart._http = lambda url, timeout=20: json.dumps({"status": "000", "total_page": 1, "list": [
+            {"stock_code": "SYN001", "report_nm": "연결재무제표기준영업(잠정)실적(공정공시)", "rcept_no": "1"}]})
         with open("config.json", "w", encoding="utf-8") as fh:
             json.dump({"budget": 5000000}, fh)
 
     def tearDown(self):
+        dart.api_key, dart._http = self._dart
         data.set_client(None)
         os.chdir(self.old)
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -96,6 +102,7 @@ class Online(unittest.TestCase):
         code, text = self.call(risk, ["--config", "config.json", "--now", "2026-10-28 10:16"])
         self.assertEqual(code, 0, text)
         self.assertTrue(os.path.exists("trader-kr/state/market_status.json"))
+        self.assertIn("공시: 2026-10-28 에 SYN001 공시 1건 (연결재무제표기준영업(잠정)실적", text)
 
         self.fake.warnings["SYN001"] = [{"warningType": "INVESTMENT_WARNING", "exchange": "KRX",
                                          "startDate": "2026-10-28", "endDate": None}]

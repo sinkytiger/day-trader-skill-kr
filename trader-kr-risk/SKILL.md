@@ -39,7 +39,9 @@ python "${CLAUDE_SKILL_DIR}/check.py" --no-network --status status.json
 | `trader-kr/portfolio.json` | 현금과 보유 종목. 없으면 예산만큼 현금이 있는 새 계좌로 본다 |
 | `trader-kr/state/broker.json` | 오늘 낸 주문 기록: 중복, 거래 수, 하루 손실 (주문 단계가 생기면 씀) |
 | 토스증권 종목 정보·매수 유의사항·상·하한가 | 주문 종목마다. `trader-kr/state/market_status.json` 에 남긴다 |
-| 토스증권 장 운영 정보 | 오늘 휴장인지, 개장·접속매매 끝 시각 |
+| 토스증권 현재가 | 15분 안의 가격이면 손실을 재는 데 쓰고, 손절가 이하면 막는다 |
+| 토스증권 장 운영 정보 | 오늘 휴장인지, 개장·접속매매 끝 시각. 못 받으면 막는다 |
+| DART 공시 목록 | `DART_API_KEY` 가 있으면 그날 그 종목 공시를 경고 |
 | `trader-kr/state/risk.json` | 판정과 주문마다 지문 |
 
 ## 진입과 청산
@@ -59,6 +61,8 @@ python "${CLAUDE_SKILL_DIR}/check.py" --no-network --status status.json
 | 유의 | 오늘 걸린 투자경고, 투자위험, 단기과열, 정리매매, 신주인수권, 정적·동적 VI |
 | 상태 모름 | 토스증권에서 종목 상태를 못 받음 (`require_market_status`: true, 기본) |
 | 가격제한 | 진입가나 목표가가 상한가보다 높음. 손절가가 하한가보다 낮으면 경고 |
+| 가격 | 15분 안의 현재가가 손절가 이하 (계획이 이미 깨짐). 시장가는 현재가가 계획 진입가보다 높으면 그 가격으로 손실을 잰다 |
+| 계획 날짜 | 오늘 계획이 아님 |
 | 손절 | 손절이 없음 (`require_stop`), 손절이 진입가 이상 |
 | 손실 | 수량 x 위험 + 수수료 + 매도세 가 `max_loss_per_trade_krw` 초과 |
 | 손익비 | 비용 뺀 손익비가 `min_reward_risk` 미만 |
@@ -67,6 +71,9 @@ python "${CLAUDE_SKILL_DIR}/check.py" --no-network --status status.json
 | 시간 | 휴장, 접속매매 밖, `no_entries_before` 전, `no_entries_after` 뒤 (늦게 여는 날은 함께 옮김) |
 | 금액·한도·현금 | `min_order_krw` 미만, `max_order_krw` 초과, `max_position_pct` 초과, 현금 버퍼 깸, 미수 |
 | 중복·주문 수 | 같은 종목·방향이 묶음에 둘, 오늘 이미 냄, `max_orders_per_day` |
+
+경고만 하는 것 (막지 않음): 신호 뒤 15분이 넘게 지남, 그날 그 종목 DART 공시 (`DART_API_KEY` 가 있을 때), 15분 안의
+현재가가 없어 계획 진입가로 잼, 장 시간이 다른 날.
 
 미국판의 패턴 데이트레이더 규칙은 국내에 없어서 뺐다.
 

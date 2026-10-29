@@ -23,6 +23,8 @@
   종목      주식이 아님 (ETF 는 "allow_etf"), 우선주 ("allow_preferred"), 상장 상태가
             ACTIVE 가 아님, KRX 거래정지, 정리매매
   유의      투자경고, 투자위험, 단기과열, 정리매매, 신주인수권, VI 발동 중
+  (경고만)  오늘 그 종목 DART 공시 (잠정실적, 증자 등). DART_API_KEY 가 있을 때
+  (경고만)  신호 뒤 15분이 넘게 지난 계획
   상태 모름 종목 상태를 받지 못함 ("require_market_status": true 일 때)
   가격제한  진입가나 목표가가 상한가보다 높음 (손절가가 하한가보다 낮으면 경고)
   차단 목록 "blocked" 의 종목
@@ -51,12 +53,13 @@ import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
-from krcommon import data, krx, toss  # noqa: E402
+from krcommon import dart, data, krx, toss  # noqa: E402
 
 ORDER_FIELDS = ("symbol", "side", "qty", "type", "limit_price", "time_in_force", "exit")
 TYPES = {"market", "limit"}
 TIFS = {"day"}
 FRESH_MINUTES = 15
+STALE_MINUTES = 15   # 신호 뒤 이만큼 지나면 경고
 BLOCK_WARNINGS = {"INVESTMENT_WARNING": "투자경고종목", "INVESTMENT_RISK": "투자위험종목", "OVERHEATED": "단기과열종목",
                   "LIQUIDATION_TRADING": "정리매매", "STOCK_WARRANTS": "신주인수권",
                   "VI_STATIC": "정적 VI 발동 중", "VI_DYNAMIC": "동적 VI 발동 중", "VI_STATIC_AND_DYNAMIC": "정적·동적 VI 발동 중"}
@@ -132,6 +135,11 @@ def fetch_status(symbols, today):
             rec["error"] = str(e)
         if rec.get("stock") is None and "error" not in rec:
             rec["error"] = "토스증권에 %s 종목 정보가 없습니다" % sym
+        day = krx.parse_day(today)
+        rows, note = dart.check(sym, day) if day else (None, None)
+        rec["disclosures"] = rows
+        if rows is None and note:
+            rec["disclosure_note"] = note
         out[sym] = rec
     try:
         for q in c.prices(symbols):
@@ -203,6 +211,10 @@ def status_reasons(sym, st, today, c):
                                                        w.get("endDate") or "진행 중", w.get("exchange") or "거래소 무관"))
         else:
             warns.append("유의사항 %s 가 있습니다 (%s)" % (k, sym))
+    if st.get("disclosures"):
+        warns.append("공시: " + dart.describe(st["disclosures"], sym, krx.parse_day(today)))
+    elif st.get("disclosure_note"):
+        warns.append(st["disclosure_note"])
     pl = st.get("price_limits") or {}
     lo, hi = _f(pl.get("lowerLimitPrice")), _f(pl.get("upperLimitPrice"))
     return reasons, warns, lo, hi
@@ -309,6 +321,15 @@ def check(orders, cfg, portfolio=None, state=None, status=None, now=None, sessio
         pday = plan.get("date")
         if side == "buy" and pday and str(pday) != today:
             reasons.append("계획 날짜: 이 주문의 계획은 %s 것입니다 (오늘 %s). trader-kr-exit 로 새로 계획하세요" % (pday, today))
+        elif side == "buy" and plan.get("entry_time"):
+            try:
+                sig = datetime.datetime.combine(now.date(), krx.parse_hhmm(plan["entry_time"], "entry_time"))
+                late = int((now - sig).total_seconds() // 60)
+                if late > STALE_MINUTES:
+                    warns.append("신호 뒤 %d분이 지났습니다. 늦은 진입은 다른 거래입니다: 가격, 손절 거리, 확률이 바뀌었습니다"
+                                 % late)
+            except krx.KrxError:
+                pass
 
         held = acct["shares"].get(sym, 0.0)
         kind = "exit" if (side == "sell" and held > 0 and q is not None and q <= held + 1e-9) else "entry"

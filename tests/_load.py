@@ -5,6 +5,9 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 시험은 네트워크 없이 돈다: 실제 키를 읽어 진짜 서버를 부르는 일이 없게 지운다
+for _k in ("DART_API_KEY", "TOSS_CLIENT_ID", "TOSS_CLIENT_SECRET", "TOSS_CREDENTIALS"):
+    os.environ.pop(_k, None)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
