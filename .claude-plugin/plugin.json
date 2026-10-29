@@ -1,0 +1,23 @@
+{
+  "name": "day-trader-skill-kr",
+  "description": "국내 주식 단타용 Claude 스킬 6종 (토스증권 Open API 시세): 스캐너, 진입 타이머, 청산 계획, 타임머신, 수량 계산, 위험 점검. 1단계는 조회와 계산만 하고 주문은 내지 않는다.",
+  "version": "0.1.0",
+  "author": {
+    "name": "sinkytiger",
+    "url": "https://github.com/sinkytiger"
+  },
+  "homepage": "https://github.com/sinkytiger/day-trader-skill-kr",
+  "repository": "https://github.com/sinkytiger/day-trader-skill-kr",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "claude-skills",
+    "day-trading",
+    "korea",
+    "krx",
+    "toss-securities",
+    "opening-range-breakout",
+    "monte-carlo"
+  ],
+  "skills": "./"
+}
