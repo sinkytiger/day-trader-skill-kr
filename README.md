@@ -79,8 +79,8 @@ Claude Code 플러그인으로:
 /plugin install day-trader-skill-kr@day-trader-skill-kr
 ```
 
-2026-10-29 에 Claude Code 2.1.309 의 빈 설정에서 위 두 줄로 설치해 스킬이 올라오는 것을 확인했다 (항상 드는
-토큰 약 1,060). 또는 폴더를 복사한다. 스크립트가 공통 모듈 `krcommon/` 을 옆 폴더에서 찾으므로 같이 복사해야 한다.
+2026-10-29 에 Claude Code 2.1.309 의 빈 설정에서 위 두 줄로 0.3.0 을 설치해 스킬 9개가 올라오고 설치된 사본에서 데모가 끝까지 도는 것을 확인했다 (항상 드는
+토큰 약 1,180). 또는 폴더를 복사한다. 스크립트가 공통 모듈 `krcommon/` 을 옆 폴더에서 찾으므로 같이 복사해야 한다.
 
 ```bash
 git clone https://github.com/sinkytiger/day-trader-skill-kr.git
