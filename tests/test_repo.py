@@ -7,10 +7,11 @@ from _load import ROOT
 from krcommon import krx
 
 SKILLS = ["trader-kr-scanner", "trader-kr-entry", "trader-kr-exit", "trader-kr-timemachine", "trader-kr-budget",
-          "trader-kr-risk", "trader-kr-journal", "trader-kr-lab", "trader-kr-today"]
+          "trader-kr-risk", "trader-kr-journal", "trader-kr-lab", "trader-kr-today", "trader-kr-broker"]
 SCRIPTS = {"trader-kr-scanner": "scan.py", "trader-kr-entry": "entry.py", "trader-kr-exit": "exit.py",
            "trader-kr-timemachine": "timemachine.py", "trader-kr-budget": "size.py", "trader-kr-risk": "check.py",
-           "trader-kr-journal": "journal.py", "trader-kr-lab": "lab.py", "trader-kr-today": "today.py"}
+           "trader-kr-journal": "journal.py", "trader-kr-lab": "lab.py", "trader-kr-today": "today.py",
+           "trader-kr-broker": "broker.py"}
 
 
 def frontmatter(path):
@@ -58,13 +59,22 @@ class Repo(unittest.TestCase):
             self.assertIn("yes", low, s)
             self.assertIn("채팅에 붙여 넣지 않습니다", text, s)
 
-    def test_phase_one_never_touches_orders_or_accounts(self):
+    def test_no_toss_orders_and_no_live_trading(self):
+        live_host = "openapi." + "koreainvestment.com"           # 실전 서버. 모의는 openapivts
         for p in code_files():
             with open(p, encoding="utf-8") as fh:
                 src = fh.read()
+            rel = os.path.relpath(p, ROOT)
             for bad in ("/api/v1/orders", "conditional-orders", "X-Tossinvest-Account", "/api/v1/accounts",
                         "/api/v1/holdings", "buying-power", "sellable-quantity"):
-                self.assertNotIn(bad, src, "%s calls %s" % (os.path.relpath(p, ROOT), bad))
+                self.assertNotIn(bad, src, "%s calls %s" % (rel, bad))
+            for bad in ("TTTC0012U", "TTTC0011U", "TTTC0013U", "TTTC0802U", "TTTC0801U", "TTTC8434R"):
+                self.assertNotIn(bad, src, "%s has a live-account TR id %s" % (rel, bad))
+            if rel.replace(os.sep, "/") != "krcommon/kis.py":
+                self.assertNotIn("/trading/order-cash", src, "%s calls the order API directly" % rel)
+        for p in text_files():
+            with open(p, encoding="utf-8", errors="replace") as fh:
+                self.assertNotIn(live_host, fh.read(), os.path.relpath(p, ROOT))
 
     def test_config_example_is_safe_and_complete(self):
         with open(os.path.join(ROOT, "trader-kr-budget", "config.example.json"), encoding="utf-8") as fh:

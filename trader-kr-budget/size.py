@@ -4,7 +4,7 @@
 
 trader-kr/plan.json (trader-kr-exit 가 씀) 을 읽어 주문 제안 하나를 trader-kr/orders.json 에
 쓴다: 매수 1건과 그 뒤에 걸 손절·목표 (토스증권이라면 OCO 조건주문 하나로 걸 수 있는
-형태). trader-kr-risk 가 그 제안을 검사하고, 주문 단계는 아직 없다 (1단계는 조회·계산만).
+형태). trader-kr-risk 가 그 제안을 검사하고, 보내는 것은 trader-kr-broker 다 (모의투자, 세 겹 승인 뒤).
 
     python size.py                                  # trader-kr/plan.json + trader-kr/config.json
     python size.py --write                          # trader-kr/orders.json 에 쓰기
@@ -256,7 +256,7 @@ def plan_report(s, order, notes=()):
     L.append("  체결 뒤: 손절 %s / 목표 %s 한 쌍, %s 까지 남으면 정리" % (p(order["exit"]["stop_price"]),
                                                           p(order["exit"]["take_profit_price"]), s["flat_by"]))
     L.append("")
-    L.append("다음: trader-kr-risk 가 검사합니다. 1단계에는 주문 보내기가 없습니다.")
+    L.append("다음: trader-kr-risk 가 검사합니다. 보내는 것은 trader-kr-broker 이고, 당신의 yes 가 있어야 합니다.")
     L.append("교육과 도구일 뿐 투자 권유가 아닙니다 (not financial advice).")
     return "\n".join(L)
 
@@ -265,7 +265,7 @@ def write_orders(path, orders, cfg, source="", now_kst=None):
     doc = {"created_by": "trader-kr-budget", "created_at": (now_kst or krx.kst_now()).strftime("%Y-%m-%d %H:%M:%S"),
            "status": "proposed", "send_orders": bool(cfg.get("send_orders", False)),
            "note": "제안일 뿐입니다. trader-kr-risk 가 이 주문을 통과시키고 당신이 채팅에서 그 주문에 yes 라고 해야만 다음 단계로 갑니다. "
-                   "1단계에는 주문을 보내는 도구가 없습니다.",
+                   "보내는 것은 trader-kr-broker (한국투자증권 모의투자) 뿐입니다.",
            "source": source, "orders": orders}
     krx.write_json(path, doc)
 

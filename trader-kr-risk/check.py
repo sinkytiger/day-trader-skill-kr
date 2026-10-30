@@ -268,7 +268,8 @@ def check(orders, cfg, portfolio=None, state=None, status=None, now=None, sessio
     acct = account(c, portfolio)
     top_warn = []
     if c.get("send_orders"):
-        top_warn.append("\"send_orders\": true 이지만 1단계에는 주문을 보내는 도구가 없습니다")
+        top_warn.append("\"send_orders\": true 입니다. PASS 한 주문은 trader-kr-broker 가 모의투자로 보낼 수 있습니다 "
+                        "(그 주문 하나에 대한 당신의 yes 와 승인 카드가 더 있어야)")
     blocked = {str(b).strip().upper() for b in c.get("blocked") or []}
     done = placed_today(state, today)
     entries_today = [r for r in done if is_entry(r)]
@@ -510,7 +511,7 @@ def report(res):
     if res["block"]:
         L.append("막힌 주문은 다음 단계로 가지 않습니다. 주문이나 규칙을 고치고 다시 점검하세요.")
     else:
-        L.append("모두 통과했습니다. 그래도 주문은 주문마다 당신이 yes 라고 해야 합니다. 1단계에는 주문 도구가 없습니다.")
+        L.append("모두 통과했습니다. 그래도 주문은 주문마다 당신이 yes 라고 해야 하고, 보내는 것은 trader-kr-broker (모의투자) 뿐입니다.")
     L.append("교육과 도구일 뿐 투자 권유가 아닙니다 (not financial advice).")
     return "\n".join(L)
 

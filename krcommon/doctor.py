@@ -107,7 +107,8 @@ def run(client, symbol, out, env=None, today=None):
     try:
         from krcommon import keys
         extra = []
-        for kind, label in (("krx", "KRX Open API (장 전 스캔)"), ("dart", "OpenDART (공시 경고)")):
+        for kind, label in (("krx", "KRX Open API (장 전 스캔)"), ("dart", "OpenDART (공시 경고)"),
+                            ("kis", "한국투자증권 모의투자 (주문)")):
             desc, found = keys.where(kind, env)
             extra.append("%s %s" % (label, "있음" if found else "없음"))
         out("6. 선택 키: %s. KRX 승인 확인은 python krcommon/keys.py krx --check" % ", ".join(extra))

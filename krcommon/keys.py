@@ -9,6 +9,8 @@
     python krcommon/keys.py krx --from-env    # 지금 KRX_API_KEY 환경변수 값을 파일로 옮겨 저장
     python krcommon/keys.py dart              # OpenDART 키 -> ~/.dart/api_key
     python krcommon/keys.py toss              # 토스증권 client_id, client_secret -> ~/.tossinvest/credentials.json
+    python krcommon/keys.py kis               # 한국투자증권 모의투자 앱키, 앱시크릿, 계좌번호 -> ~/.kis/credentials.json
+    python krcommon/keys.py kis --check       # 저장된 모의투자 키로 잔고를 한 번 조회 (주문은 내지 않음)
 
 입력은 숨김 입력(getpass)으로 받는다. 붙여 넣어도 화면에 나오지 않는다. 표준입력으로 넘겨도 된다
 (예: Get-Clipboard | python krcommon/keys.py krx). 같은 이름의 환경변수가 있으면 그 값이 파일보다 먼저
@@ -25,7 +27,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
-from krcommon import dart, krx, krxdata, toss  # noqa: E402
+from krcommon import dart, kis, krx, krxdata, toss  # noqa: E402
 
 
 def home():
@@ -36,11 +38,13 @@ def paths(h=None):
     h = h or home()
     return {"krx": os.path.join(h, ".krx", "api_key"), "dart": os.path.join(h, ".dart", "api_key"),
             "toss": os.path.join(h, ".tossinvest", "credentials.json"),
-            "toss_token": os.path.join(h, ".tossinvest", "token.json")}
+            "toss_token": os.path.join(h, ".tossinvest", "token.json"),
+            "kis": os.path.join(h, ".kis", "credentials.json"), "kis_token": os.path.join(h, ".kis", "token.json")}
 
 
-ENV = {"krx": ["KRX_API_KEY"], "dart": ["DART_API_KEY"], "toss": ["TOSS_CLIENT_ID", "TOSS_CLIENT_SECRET"]}
-NAMES = {"krx": "KRX Open API", "dart": "OpenDART", "toss": "토스증권 Open API"}
+ENV = {"krx": ["KRX_API_KEY"], "dart": ["DART_API_KEY"], "toss": ["TOSS_CLIENT_ID", "TOSS_CLIENT_SECRET"],
+       "kis": ["KIS_APP_KEY", "KIS_APP_SECRET", "KIS_ACCOUNT"]}
+NAMES = {"krx": "KRX Open API", "dart": "OpenDART", "toss": "토스증권 Open API", "kis": "한국투자증권 모의투자"}
 
 
 def write_private(path, text):
@@ -79,11 +83,12 @@ def where(kind, env=None, h=None):
 
 
 def cmd_status(a, out=print, env=None, h=None):
-    for kind in ("toss", "krx", "dart"):
+    for kind in ("toss", "krx", "dart", "kis"):
         desc, found = where(kind, env, h)
-        need = {"toss": "필수 (시세)", "krx": "선택 (장 전 스캔의 KRX 공식 종가)", "dart": "선택 (그날 공시 경고)"}[kind]
+        need = {"toss": "필수 (시세)", "krx": "선택 (장 전 스캔의 KRX 공식 종가)", "dart": "선택 (그날 공시 경고)",
+                "kis": "선택 (모의투자 주문)"}[kind]
         out("%s %s  %s" % (krx.pad(NAMES[kind], 22), "있음" if found else "없음", "(%s)" % desc if found else "- " + need))
-    out("키 값은 찍지 않았습니다. 등록: python krcommon/keys.py krx | dart | toss")
+    out("키 값은 찍지 않았습니다. 등록: python krcommon/keys.py krx | dart | toss | kis")
     return 0
 
 
@@ -165,6 +170,46 @@ def cmd_toss(a, out=print, env=None, h=None, stdin=None, getpass_fn=getpass.getp
     return 0
 
 
+def report_kis(out, client=None):
+    """저장된 모의투자 키로 잔고를 한 번 조회한다. 주문은 내지 않는다. 키 값과 계좌번호는 찍지 않는다."""
+    c = client or kis.Client()
+    b = c.balance()
+    out("  통과: 모의투자 잔고 조회. 예수금 %s, 보유 종목 %d개." % (krx.won(b["cash"]), len(b["positions"])))
+    return True
+
+
+def cmd_kis(a, out=print, env=None, h=None, stdin=None, getpass_fn=getpass.getpass, client=None):
+    env = os.environ if env is None else env
+    p = paths(h)
+    if a.check:
+        out("저장된 한국투자증권 모의투자 키(%s)로 잔고를 조회합니다. 주문은 내지 않습니다." % where("kis", env, h)[0])
+        return 0 if report_kis(out, client) else 1
+    out("KIS Developers 에서 받은 '모의투자' 앱키와 앱시크릿, 모의투자 계좌번호를 차례로 붙여 넣으세요 "
+        "(화면에 보이지 않습니다). 실전 앱키는 쓰지 않습니다.")
+    key = read_secret("모의투자 앱키 (APP Key): ", stdin, getpass_fn)
+    sec = read_secret("모의투자 앱시크릿 (APP Secret): ", stdin, getpass_fn)
+    acct = read_secret("모의투자 계좌번호 (예: 50123456-01): ", stdin, getpass_fn)
+    if not key or not sec or any(ch.isspace() for ch in key + sec):
+        out("앱키나 앱시크릿이 비었거나 공백이 있습니다. 저장하지 않았습니다.")
+        return 1
+    try:
+        cano, prdt = kis.split_account(acct)
+    except kis.KisError as e:
+        out("%s. 저장하지 않았습니다." % e)
+        return 1
+    write_private(p["kis"], json.dumps({"app_key": key, "app_secret": sec, "account": cano + "-" + prdt,
+                                        "mock": True}) + "\n")
+    if os.path.exists(p["kis_token"]):
+        os.remove(p["kis_token"])           # 다른 키의 토큰은 쓰지 않는다
+    out("저장했습니다: %s" % p["kis"])
+    if all((env.get(n) or "").strip() for n in ENV["kis"]):
+        out("참고: KIS_APP_KEY 등 환경변수가 따로 있어서 그 값이 이 파일보다 먼저 쓰입니다.")
+    if a.no_verify:
+        return 0
+    out("잔고를 한 번 조회해 키를 확인합니다 (처음이면 토큰을 받아서 알림톡이 갈 수 있습니다).")
+    return 0 if report_kis(out, client) else 1
+
+
 def main(argv=None):
     krx.utf8_stdio()
     ap = argparse.ArgumentParser(description="API 키 등록 (값은 찍지 않음).")
@@ -176,16 +221,19 @@ def main(argv=None):
     q.add_argument("--no-verify", action="store_true", help="저장만 하고 KRX 를 부르지 않음")
     sub.add_parser("dart", help="OpenDART 키 등록")
     sub.add_parser("toss", help="토스증권 Open API 키 등록")
+    q = sub.add_parser("kis", help="한국투자증권 모의투자 키 등록")
+    q.add_argument("--check", action="store_true", help="저장하지 않고 지금 키로 잔고만 조회")
+    q.add_argument("--no-verify", action="store_true", help="저장만 하고 조회하지 않음")
     a = ap.parse_args(argv)
     if not a.cmd:
         ap.print_help()
         return 1
     try:
-        return {"status": cmd_status, "krx": cmd_krx, "dart": cmd_dart, "toss": cmd_toss}[a.cmd](a)
+        return {"status": cmd_status, "krx": cmd_krx, "dart": cmd_dart, "toss": cmd_toss, "kis": cmd_kis}[a.cmd](a)
     except (EOFError, KeyboardInterrupt):
         print("keys.py: 입력이 없어 멈췄습니다. 본인 터미널에서 다시 돌리세요.", file=sys.stderr)
         return 1
-    except (krxdata.KrxDataError, toss.TossError, dart.DartError, OSError) as e:
+    except (krxdata.KrxDataError, toss.TossError, dart.DartError, kis.KisError, OSError) as e:
         print("keys.py: %s" % e, file=sys.stderr)
         return 1
 

@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml/badge.svg)](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml)
 
-국내 주식(코스피·코스닥) 단타용 Claude 스킬 9종. 차트를 스캔하고, 진입 순간을 알려 주고, 손절가와 목표가를
+국내 주식(코스피·코스닥) 단타용 Claude 스킬 10종. 차트를 스캔하고, 진입 순간을 알려 주고, 손절가와 목표가를
 먼저 정하고, 남은 장을 10,000번 다시 돌려 보고, 최대 손실에 맞춰 수량을 정하고, 한도를 넘는 주문을 막는다. 그리고
 실제 거래를 일지에 적어 계획을 지켰는지 재고, 여러 규칙을 앞 기간에서 골라 뒤 기간에서 확인해 비용을 내고도 남는
 규칙이 있는지 가린다. "오늘 장 봐 줘" 한마디면 지금 시각에 맞춰 이 단계들을 이어서 돌리고 한 장으로 보여 준다.
@@ -11,12 +11,12 @@
 국내 시장 규칙과 토스증권 Open API 시세로 옮겼다. 계산은 파이썬이 하고 Claude 는 결정하지 않는다는 원본의 원칙은
 그대로다. 표준 라이브러리만 쓰고, 설치할 패키지가 없다.
 
-**1단계는 조회와 계산만 한다.** 이 저장소의 어떤 스크립트도 토스증권 주문·계좌 API 를 부르지 않는다. 주문 단계는
-아직 없다.
+**주문은 한국투자증권 모의투자 계좌로만, 세 겹 승인 뒤에 낸다.** 주문을 내는 것은 `/trader-kr-broker` 하나이고,
+실전 계좌와 토스증권 주문·계좌 API 는 이 저장소의 어떤 스크립트도 부르지 않는다. 기본값은 보내지 않음이다.
 
 > 교육과 도구일 뿐 투자 권유가 아니다 (not financial advice). 단타를 하는 사람 대부분은 돈을 잃는다.
 
-## 스킬 9종
+## 스킬 10종
 
 | 명령 | 이름 | 하는 일 |
 | --- | --- | --- |
@@ -27,11 +27,12 @@
 | `/trader-kr-timemachine` | 타임머신 | 지난 60 거래일 5분봉으로 남은 장을 10,000번 재생하고 같은 규칙을 지난 거래일에 다시 적용한다 |
 | `/trader-kr-budget` | 수량 계산 | 수수료와 매도 거래세까지 넣은 최대 손실에 맞춰 몇 주 살지 정한다 |
 | `/trader-kr-risk` | 위험 점검 | 투자경고·VI·거래정지 종목, 시간 밖 진입, 한도 초과, 비용에 비해 작은 위험을 PASS / BLOCK 으로 가른다 |
+| `/trader-kr-broker` | 주문 실행 | 한국투자증권 모의투자로만, 위험 점검 PASS, 채팅의 "네", 도구 승인 카드를 모두 지난 주문을 낸다. 체결되면 목표가 지정가를 걸고, watch 가 손절가와 청산 시각을 지킨다 |
 | `/trader-kr-journal` | 거래 일지 | 실제 진입·청산을 적고 늦은 진입, 손절 어김, 청산 시각 어김, 낸 비용을 숫자로 보여 준다 |
 | `/trader-kr-lab` | 전략 검증 실험실 | 48가지 규칙을 앞 120 거래일에서 고르고 뒤 20 거래일에서 확인한다. 우연을 홀름 보정으로 걸러 낸다 |
 
-원본의 나머지 다섯 (뉴스, 주문 실행, 가격 알림, 실적 요약, 의원 매매 공시) 은 아직 옮기지 않았다. 뉴스는 DART 공시,
-실적 요약은 DART 재무, 의원 매매는 DART 임원·주요주주 소유보고로 바꿀 계획이다. 주문 실행은 아래 "주문 단계" 를 보라.
+원본의 나머지 넷 (뉴스, 가격 알림, 실적 요약, 의원 매매 공시) 은 아직 옮기지 않았다. 뉴스는 DART 공시, 실적 요약은
+DART 재무, 의원 매매는 DART 임원·주요주주 소유보고로 바꿀 계획이다. 주문 실행은 아래 "주문 (모의투자)" 를 보라.
 
 ## 흐름
 
@@ -42,6 +43,7 @@ today = scanner -> entry -> exit -> budget -> risk -> timemachine  (한마디로
 scanner -> entry -> exit -> timemachine -> budget -> risk      (거래 하나, 단계별로)
 journal: open / close / report                                 (산 뒤, 판 뒤, 주말마다)
 lab: run                                                       (규칙을 바꾸기 전에)
+broker: show -> approve -> place -> watch                      (모의투자, 주문마다 "네" 와 승인 카드)
 ```
 
 ## 키 없이 먼저 돌려 보기
@@ -166,7 +168,7 @@ KRX 응답이 한 번에 몇 초씩 걸려서 날짜 여섯 개씩 동시에 받
 | 체결 비용 | 없음 | 토스 호가창으로 시장가 평균 체결가, 중간가 절약, 손절 때 밀림을 재서 수량과 최대 손실에 넣음 |
 | 비용 필터 | 없음 | 손절 때 비용과 밀림이 주당 위험의 30% 를 넘는 거래를 막음 |
 | 기록과 검증 | 없음 | 거래 일지, 워크포워드 전략 검증 실험실 |
-| 주문 | Alpaca, IBKR (모의계좌 기본) | 1단계에는 없음. 토스증권 API 에 모의투자 서버가 없음 |
+| 주문 | Alpaca, IBKR (모의계좌 기본, 손절·목표는 브래킷 주문) | 한국투자증권 모의투자만. 목표가는 지정가로 걸고, 손절은 watch 가 지켜보다 시장가로 |
 
 **호가 단위와 체결가.** 손절가, 목표가, 지정가는 한국거래소의 2023-01-25 표 (2,000원 미만 1원, 5,000원 미만 5원,
 2만원 미만 10원, 5만원 미만 50원, 20만원 미만 100원, 50만원 미만 500원, 그 이상 1,000원) 에 맞춘다. 2026-10-29
@@ -182,14 +184,24 @@ KRX 응답이 한 번에 몇 초씩 걸려서 날짜 여섯 개씩 동시에 받
 
 **증권거래세.** 2026-01-01 매도분부터 코스피 0.05% 에 농어촌특별세 0.15%, 코스닥 0.20% 로 둘 다 실효 0.20% 다.
 
-## 주문 단계 (아직 없음)
+## 주문 (모의투자)
 
-토스증권 Open API 문서(2026-10-29 확인)에는 실계좌 서버만 있고 모의투자 서버가 없다. 그래서 주문을 붙이더라도
-기본값은 "주문표만 만들고 보내지 않음" (`"send_orders": false`) 으로 둔다. 손절과 목표는 토스증권 조건주문(OCO,
-종목당 1개)으로 걸면 토스 쪽에서 지켜보므로 컴퓨터가 꺼져도 살아 있다. 다만 토스 조건주문은 장 구분 없이 감시해서
-애프터마켓에서 체결될 수 있다. 주문 단계는 원본처럼 세 겹 승인을 지킨다: trader-kr-risk 가 오늘 그 주문 그대로
-통과시켰고, 사용자가 채팅에서 그 주문 하나에 yes 라고 했고, Claude 의 도구 승인 카드에서 한 번만 허용을 눌렀을 때만.
-모의 체결로 연습하려면 한국투자증권 Open API 모의투자를 붙이는 쪽을 검토하고 있다.
+`/trader-kr-broker` 가 한국투자증권 Open API 모의투자 서버(openapivts.koreainvestment.com:29443)로만 주문한다.
+토스증권 Open API 에는 모의투자 서버가 없어서(2026-10-29 문서 확인) 주문은 한국투자증권 모의투자로 연습한다. 실전 서버
+주소는 이 저장소에 없고, 인증 정보가 실전 계좌라고 하면 거절한다.
+
+주문은 원본처럼 세 겹 승인을 지킨다: trader-kr-risk 가 오늘 그 주문 그대로 통과시켰고(지문이 같음), 사용자가 채팅에서 그
+주문 하나에 "네" 라고 했고(`approve` 가 답을 글자 그대로 기록, 10분 안에 한 번만), Claude 의 도구 승인 카드에서 허용을
+눌렀을 때만. 그리고 `trader-kr/config.json` 의 `"send_orders"` 가 true 여야 하는데, 이 값은 사용자가 직접 바꾼다.
+
+체결되면 일지에 적고 목표가 지정가 매도를 증권사에 건다. 손절은 증권사에 걸리지 않는다: `broker.py watch` 가 현재가를
+보다가 손절가 이하이거나 청산 시각(15:15)이 되면 목표가 주문을 취소하고 시장가로 판다. watch 가 돌고 있지 않으면 손절이
+지켜지지 않는다. 쓰는 API 와 거래 ID 는 한국투자증권 공식 예제(github.com/koreainvestment/open-trading-api)로 확인했다:
+주문 VTTC0012U(매수)·VTTC0011U(매도), 취소 VTTC0013U, 주문체결 조회 VTTC0081R, 잔고 VTTC8434R, 현재가 FHKST01010100.
+
+준비는 사용자가 한다: 한국투자증권 계좌, KIS Developers 모의투자 신청과 모의투자 앱키, 그리고 본인 터미널에서
+`python krcommon/keys.py kis` (앱키·앱시크릿·계좌번호를 숨김 입력, `~/.kis/credentials.json`), `python krcommon/keys.py kis --check`
+(잔고를 한 번 조회). 토큰은 하루 쓰고 1분에 한 번만 발급되며 발급 때 알림톡이 가서 `~/.kis/token.json` 에 저장해 다시 쓴다.
 
 ## 시험
 
@@ -230,8 +242,9 @@ trader-kr-risk/         SKILL.md, check.py
 trader-kr-journal/      SKILL.md, journal.py
 trader-kr-lab/          SKILL.md, lab.py
 trader-kr-today/        SKILL.md, today.py (다른 스킬을 시각에 맞춰 이어서 부름)
+trader-kr-broker/       SKILL.md, broker.py (한국투자증권 모의투자 주문, 세 겹 승인)
 krcommon/               krx.py (시장 규칙), toss.py (토스증권 시세), bars.py (1분봉 캐시, 5분봉), data.py,
-                        dart.py (그날 공시), krxdata.py (KRX 공식 일봉), keys.py (키 등록), liquidity.py (호가창),
+                        dart.py (그날 공시), krxdata.py (KRX 공식 일봉), kis.py (한국투자증권 모의투자), keys.py (키 등록), liquidity.py (호가창),
                         doctor.py (연결 점검), demo.py (키 없이 8단계), synth.py (합성 1분봉)
 tests/                  unittest, 가짜 토스증권 서버
 .github/workflows/      tests.yml (시험과 데모, 키 없음)
@@ -239,13 +252,14 @@ tests/                  unittest, 가짜 토스증권 서버
 
 ## In English
 
-A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): nine Claude skills
+A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): ten Claude skills
 for KOSPI/KOSDAQ day trades (scanner, entry timer, exit planner, Monte Carlo time machine, position sizing, risk check,
 a trade journal that measures plan adherence, a walk-forward strategy lab with Holm-corrected tests, and a
-one-call "today" skill that runs the right steps for the time of day and prints one card per candidate),
+one-call "today" skill that runs the right steps for the time of day and prints one card per candidate, and an order
+skill that trades only on a Korea Investment & Securities paper account after the same three approvals as the original),
 reading Toss Securities Open API market data. It adds KRX session hours (continuous trading 09:00 to 15:20), tick sizes,
 the ±30% price limits, transaction tax and fees in every loss and reward:risk figure, and blocks on exchange warnings,
-volatility interruptions and trading halts. Phase 1 places no orders and calls no account or order endpoints. Tests run
+volatility interruptions and trading halts. Orders go only to the KIS paper-trading server, after a risk-check PASS, a "yes" in chat and a tool approval; no script calls a live account or Toss order endpoints. Tests run
 offline on synthetic data, because Toss data may only be used for the account holder's own trading.
 To see all eight steps without any keys, run `python krcommon/demo.py` (synthetic data, no network, about 5 seconds).
 

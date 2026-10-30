@@ -37,7 +37,7 @@ python "${CLAUDE_SKILL_DIR}/check.py" --no-network --status status.json
 | `trader-kr/orders.json` | 주문 제안 (trader-kr-budget) |
 | `trader-kr/config.json` | 한도 (trader-kr-budget 의 `config.example.json`) |
 | `trader-kr/portfolio.json` | 현금과 보유 종목. 없으면 예산만큼 현금이 있는 새 계좌로 본다 |
-| `trader-kr/state/broker.json` | 오늘 낸 주문 기록: 중복, 거래 수, 하루 손실 (주문 단계가 생기면 씀) |
+| `trader-kr/state/broker.json` | 오늘 낸 주문 기록: 중복, 거래 수, 하루 손실 (trader-kr-broker 가 씀) |
 | 토스증권 종목 정보·매수 유의사항·상·하한가 | 주문 종목마다. `trader-kr/state/market_status.json` 에 남긴다 |
 | 토스증권 현재가 | 15분 안의 가격이면 손실을 재는 데 쓰고, 손절가 이하면 막는다 |
 | 토스증권 호가창 | 손절 때 밀림 추정. 보이는 매수 잔량보다 많이 팔아야 하면 경고 |
@@ -83,7 +83,7 @@ python "${CLAUDE_SKILL_DIR}/check.py" --no-network --status status.json
 
 1. `/trader-kr-budget --write` 뒤에 `check.py` 를 돌린다.
 2. PASS 면 진입가, 손절, 목표, 손절 때 손실, 비용 뺀 손익비를 말한다. 그래도 주문은 사용자가 그 주문에 yes 라고
-   해야 하고, 1단계에는 주문 도구가 없다고 말한다.
+   해야 하고, 보내는 것은 /trader-kr-broker 뿐이라고 말한다.
 3. BLOCK 이면 이유를 한 줄씩 그대로 말한다. 한도를 바꾸자고 먼저 권하지 않는다.
 4. 경고(`~`)도 빠뜨리지 않는다. 특히 "평일 기본 장 시간" 경고는 휴장일 확인을 못 했다는 뜻이다.
 
@@ -110,11 +110,11 @@ BLOCK #1 매수 SYN001 합성종목 119주, 진입
 ## 안전
 
 - 교육과 도구일 뿐 투자 권유가 아닙니다 (not financial advice). PASS 는 규칙 점검이지 추천이 아닙니다.
-- 1단계에는 주문을 보내는 도구가 없습니다. 이 팩의 어떤 스크립트도 토스증권 주문·계좌 API 를 부르지 않습니다.
-- 토스증권 Open API 에는 모의투자 서버가 없습니다. 나중에 주문 단계를 붙여도 기본값은 보내지 않음
-  (`"send_orders": false`) 이고, 주문은 세 가지가 모두 맞을 때만 나갑니다: trader-kr-risk 가 오늘 그 주문
-  그대로 통과시켰고, 사용자가 채팅에서 그 주문 하나에 yes 라고 했고, Claude 의 도구 승인 카드에서 한 번만
-  허용을 눌렀을 때.
+- 주문은 trader-kr-broker 만 냅니다. 한국투자증권 모의투자 계좌로만 보내고, 이 팩의 어떤 스크립트도 토스증권
+  주문·계좌 API 나 실전 계좌를 부르지 않습니다.
+- 기본값은 보내지 않음 (`"send_orders": false`) 이고, 바꾸는 것은 사용자입니다. 주문은 세 가지가 모두 맞을 때만
+  나갑니다: trader-kr-risk 가 오늘 그 주문 그대로 통과시켰고, 사용자가 채팅에서 그 주문 하나에 yes 라고 했고,
+  Claude 의 도구 승인 카드에서 한 번만 허용을 눌렀을 때.
 - 미수, 신용, 공매도는 쓰지 않습니다.
 - 토스증권 client_id 와 client_secret 은 `~/.tossinvest/credentials.json` 또는 환경변수에 두고 채팅에 붙여 넣지 않습니다.
 - 토스증권 자료는 본인 매매 목적으로만 씁니다. `trader-kr/cache/` 를 공유하거나 저장소에 올리지 않습니다.

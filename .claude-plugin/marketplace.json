@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "day-trader-skill-kr",
-      "description": "국내 주식 단타용 Claude 스킬 9종: 오늘 장 한 번에, 차트 스캐너, 진입 타이머, 청산 계획, 10,000번 재생하는 타임머신, 수량 계산, 위험 점검, 거래 일지, 전략 검증 실험실. 토스증권 Open API 시세와 KRX Open API 공식 일봉을 읽고, 1단계에는 주문 도구가 없다.",
+      "description": "국내 주식 단타용 Claude 스킬 10종: 오늘 장 한 번에, 차트 스캐너, 진입 타이머, 청산 계획, 10,000번 재생하는 타임머신, 수량 계산, 위험 점검, 한국투자증권 모의투자 주문, 거래 일지, 전략 검증 실험실. 토스증권·KRX 시세를 읽고, 주문은 모의투자 계좌로만 세 겹 승인 뒤에 낸다.",
       "source": "./",
       "category": "productivity",
       "homepage": "https://github.com/sinkytiger/day-trader-skill-kr"
