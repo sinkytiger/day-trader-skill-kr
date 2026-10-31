@@ -12,7 +12,8 @@
 그대로다. 표준 라이브러리만 쓰고, 설치할 패키지가 없다.
 
 **주문은 한국투자증권 모의투자 계좌로만, 세 겹 승인 뒤에 낸다.** 주문을 내는 것은 `/trader-kr-broker` 하나이고,
-실전 계좌와 토스증권 주문·계좌 API 는 이 저장소의 어떤 스크립트도 부르지 않는다. 기본값은 보내지 않음이다.
+실전 계좌와 토스증권 주문 API 는 이 저장소의 어떤 스크립트도 부르지 않는다. 기본값은 보내지 않음이다. 토스증권
+계좌는 일지가 읽기만 한다 (보유 주식, 체결 내역).
 
 > 교육과 도구일 뿐 투자 권유가 아니다 (not financial advice). 단타를 하는 사람 대부분은 돈을 잃는다.
 
@@ -28,7 +29,7 @@
 | `/trader-kr-budget` | 수량 계산 | 수수료와 매도 거래세까지 넣은 최대 손실에 맞춰 몇 주 살지 정한다 |
 | `/trader-kr-risk` | 위험 점검 | 투자경고·VI·거래정지 종목, 시간 밖 진입, 한도 초과, 비용에 비해 작은 위험을 PASS / BLOCK 으로 가른다 |
 | `/trader-kr-broker` | 주문 실행 | 한국투자증권 모의투자로만, 위험 점검 PASS, 채팅의 "네", 도구 승인 카드를 모두 지난 주문을 낸다. 체결되면 목표가 지정가를 걸고, watch 가 손절가와 청산 시각을 지킨다 |
-| `/trader-kr-journal` | 거래 일지 | 실제 진입·청산을 적고 늦은 진입, 손절 어김, 청산 시각 어김, 낸 비용을 숫자로 보여 준다 |
+| `/trader-kr-journal` | 거래 일지 | 실제 진입·청산을 적고 늦은 진입, 손절 어김, 청산 시각 어김, 낸 비용을 숫자로 보여 준다. 토스증권에서 산 것은 계좌의 체결 내역을 읽어 적고, 보유 주식이 손절가에서 얼마나 떨어져 있는지 보여 준다 (읽기만) |
 | `/trader-kr-lab` | 전략 검증 실험실 | 48가지 규칙을 앞 120 거래일에서 고르고 뒤 20 거래일에서 확인한다. 우연을 홀름 보정으로 걸러 낸다 |
 
 원본의 나머지 넷 (뉴스, 가격 알림, 실적 요약, 의원 매매 공시) 은 아직 옮기지 않았다. 뉴스는 DART 공시, 실적 요약은
@@ -41,7 +42,7 @@ DART 재무, 의원 매매는 DART 임원·주요주주 소유보고로 바꿀 �
 ```
 today = scanner -> entry -> exit -> budget -> risk -> timemachine  (한마디로, 후보 여러 개)
 scanner -> entry -> exit -> timemachine -> budget -> risk      (거래 하나, 단계별로)
-journal: open / close / report                                 (산 뒤, 판 뒤, 주말마다)
+journal: sync / open / close / holdings / report              (산 뒤, 판 뒤, 주말마다. sync 는 토스 체결 읽기)
 lab: run                                                       (규칙을 바꾸기 전에)
 broker: show -> approve -> place -> watch                      (모의투자, 주문마다 "네" 와 승인 카드)
 ```
@@ -118,8 +119,10 @@ cp -r day-trader-skill-kr/trader-kr-* day-trader-skill-kr/krcommon ~/.claude/ski
 6. 설정 파일을 만든다: `trader-kr-budget/config.example.json` 을 `trader-kr/config.json` 으로 복사하고 숫자를 바꾼다.
    `commission_rate` 0.00015 는 토스증권 문서의 예시 값이다. 본인 계좌 수수료율로 바꾼다.
 
-이 팩이 부르는 토스증권 API 는 시세와 종목 정보뿐이다: 캔들, 현재가, 상·하한가, 종목 정보, 전체 종목, 매수 유의사항,
-장 운영 정보, 랭킹. 그룹별 초당 한도에 여유를 두고 쉬어 가며 부르고, 429 를 받으면 `Retry-After` 만큼 기다린다.
+이 팩이 부르는 토스증권 API 는 시세와 종목 정보(캔들, 현재가, 상·하한가, 종목 정보, 전체 종목, 매수 유의사항,
+장 운영 정보, 랭킹)와, 일지의 `sync`·`holdings` 가 쓰는 본인 계좌 읽기 셋(계좌 목록, 보유 주식, 주문 내역)이다.
+모두 GET 이고, 주문·정정·취소·조건주문은 부르지 않는다. 그룹별 초당 한도에 여유를 두고 쉬어 가며 부르고, 429 를
+받으면 `Retry-After` 만큼 기다린다.
 
 **자료 이용 범위.** 토스증권 Open API 자료는 "투자자 본인의 매매 목적" 으로만 쓸 수 있다. 받은 1분봉은
 `trader-kr/cache/` 에만 쌓고, 이 폴더는 `.gitignore` 에 들어 있다. 공유하지 않는다. 그래서 이 저장소의 시험은 전부
@@ -203,6 +206,29 @@ KRX 응답이 한 번에 몇 초씩 걸려서 날짜 여섯 개씩 동시에 받
 `python krcommon/keys.py kis` (앱키·앱시크릿·계좌번호를 숨김 입력, `~/.kis/credentials.json`), `python krcommon/keys.py kis --check`
 (잔고를 한 번 조회). 토큰은 하루 쓰고 1분에 한 번만 발급되며 발급 때 알림톡이 가서 `~/.kis/token.json` 에 저장해 다시 쓴다.
 
+## 토스증권 계좌 읽기 (일지)
+
+토스증권 앱에서 직접 사고판 거래를 일지에 옮겨 적는다. 주문은 사용자가 앱에서 내고, 이 팩은 계좌를 읽기만 한다.
+
+```bash
+python trader-kr-journal/journal.py sync --dry-run    # 오늘 체결을 보여 주기만 (처음 한 번 확인용)
+python trader-kr-journal/journal.py sync              # 오늘 체결을 일지에 적기
+python trader-kr-journal/journal.py holdings          # 보유 주식, 손절가까지 거리, 확인할 것
+```
+
+- 쓰는 API 는 셋이고 모두 GET 이다: 계좌 목록(`/api/v1/accounts`), 보유 주식(`/api/v1/holdings`), 주문
+  목록(`/api/v1/orders`, 끝난 주문과 진행 중 주문). 이 경로는 `krcommon/tossacct.py` 에만 있고, 그 파일에 POST 나
+  주문·정정·취소·조건주문 경로가 들어오면 `tests/test_repo.py` 가 실패한다.
+- `sync` 는 산 체결을 그날 계획(`trader-kr/plan.json` 또는 `trader-kr/today/<종목>/plan.json`)과 묶고, 계획이 없으면
+  설정 `stop_rule` 이 `pct:X` 일 때 그 손절가를 적는다. 판 체결로 거래를 닫고, 청산 이유는 가격으로 짐작한다.
+  손익은 토스증권이 준 실제 수수료·세금으로 잰다. 같은 주문을 두 번 적지 않는다.
+- 같은 날 나눠 산 것은 평균가로 합치고, 일부만 판 것은 판 만큼 떼어 닫는다. 일지에 없는 주식(전부터 갖고 있던
+  주식)을 판 것은 적지 않는다. 모의투자 기록(`trader-kr-broker`)과는 섞지 않는다.
+- 토스증권 명세상 주문 목록에는 Open API 가 받는 호가(지정가·시장가·장마감지정가)로 낸 주문만 나온다. 시간외
+  종가 주문은 보이지 않는다. 앱에서 낸 지정가·시장가 주문이 실제로 나오는지는 처음에 `--dry-run` 으로 확인한다.
+- 계좌번호는 끝 네 자리만 찍는다. 403 `forbidden` 이 나오면 이 키에 계좌 조회 권한이 없다는 뜻이다.
+- 장기 보유 주식이 같은 계좌에 있으면 `--symbol 005930` 처럼 단타 종목만 고른다.
+
 ## 시험
 
 ```bash
@@ -212,8 +238,8 @@ python -m unittest discover -s tests -v
 네트워크 없이 돈다. GitHub Actions 가 푸시마다 리눅스·Windows·macOS 의 파이썬 3.12 와 리눅스 파이썬 3.8 에서 시험과
 데모를 돌린다. 시세는 `krcommon/synth.py` 가 만드는 합성 종목 SYN001 (62 거래일, 시드 고정 무작위 걸음, 마지막 날은
 10:15 에 시가 범위를 돌파하도록 정한 모양) 이고, 토스증권 서버는 `tests/fake_toss.py` 가 흉내 낸다. 가짜 서버로
-토큰 저장, 401 재발급, 429 대기, 403 안내, 1분봉 페이지 넘김과 캐시, 가짜 DART 공시, 그리고 스캔부터 위험 점검까지
-온라인 흐름 전체를 시험한다. 시험은 실제 키 환경변수를 지우고 돈다. 스킬 문서의 예시 출력은 이 합성 자료에서 실제로 나온 값이다. 실제 시세가 아니므로 시뮬레이션 숫자에는
+토큰 저장, 401 재발급, 429 대기, 403 안내, 1분봉 페이지 넘김과 캐시, 계좌 읽기(주문 목록 쪽 넘김, 권한 없음 안내,
+GET 만 보내는지), 가짜 DART 공시, 그리고 스캔부터 위험 점검까지 온라인 흐름 전체를 시험한다. 시험은 실제 키 환경변수를 지우고 돈다. 스킬 문서의 예시 출력은 이 합성 자료에서 실제로 나온 값이다. 실제 시세가 아니므로 시뮬레이션 숫자에는
 의미가 없다.
 
 ## 주의
@@ -243,7 +269,8 @@ trader-kr-journal/      SKILL.md, journal.py
 trader-kr-lab/          SKILL.md, lab.py
 trader-kr-today/        SKILL.md, today.py (다른 스킬을 시각에 맞춰 이어서 부름)
 trader-kr-broker/       SKILL.md, broker.py (한국투자증권 모의투자 주문, 세 겹 승인)
-krcommon/               krx.py (시장 규칙), toss.py (토스증권 시세), bars.py (1분봉 캐시, 5분봉), data.py,
+krcommon/               krx.py (시장 규칙), toss.py (토스증권 시세), tossacct.py (토스증권 계좌 읽기, GET 만),
+                        bars.py (1분봉 캐시, 5분봉), data.py,
                         dart.py (그날 공시), krxdata.py (KRX 공식 일봉), kis.py (한국투자증권 모의투자), keys.py (키 등록), liquidity.py (호가창),
                         doctor.py (연결 점검), demo.py (키 없이 8단계), synth.py (합성 1분봉)
 tests/                  unittest, 가짜 토스증권 서버
@@ -259,7 +286,7 @@ one-call "today" skill that runs the right steps for the time of day and prints 
 skill that trades only on a Korea Investment & Securities paper account after the same three approvals as the original),
 reading Toss Securities Open API market data. It adds KRX session hours (continuous trading 09:00 to 15:20), tick sizes,
 the ±30% price limits, transaction tax and fees in every loss and reward:risk figure, and blocks on exchange warnings,
-volatility interruptions and trading halts. Orders go only to the KIS paper-trading server, after a risk-check PASS, a "yes" in chat and a tool approval; no script calls a live account or Toss order endpoints. Tests run
+volatility interruptions and trading halts. Orders go only to the KIS paper-trading server, after a risk-check PASS, a "yes" in chat and a tool approval; no script calls a live account or Toss order endpoints. The journal can read the user's own Toss account (holdings and order history, GET only) to log fills placed in the Toss app. Tests run
 offline on synthetic data, because Toss data may only be used for the account holder's own trading.
 To see all eight steps without any keys, run `python krcommon/demo.py` (synthetic data, no network, about 5 seconds).
 

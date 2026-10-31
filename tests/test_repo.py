@@ -65,9 +65,11 @@ class Repo(unittest.TestCase):
             with open(p, encoding="utf-8") as fh:
                 src = fh.read()
             rel = os.path.relpath(p, ROOT)
-            for bad in ("/api/v1/orders", "conditional-orders", "X-Tossinvest-Account", "/api/v1/accounts",
-                        "/api/v1/holdings", "buying-power", "sellable-quantity"):
+            for bad in ("conditional-orders", "buying-power", "sellable-quantity", "/modify", "/cancel"):
                 self.assertNotIn(bad, src, "%s calls %s" % (rel, bad))
+            if rel.replace(os.sep, "/") != "krcommon/tossacct.py":   # 토스 계좌는 이 파일만 읽는다
+                for bad in ("/api/v1/orders", "X-Tossinvest-Account", "/api/v1/accounts", "/api/v1/holdings"):
+                    self.assertNotIn(bad, src, "%s calls %s" % (rel, bad))
             for bad in ("TTTC0012U", "TTTC0011U", "TTTC0013U", "TTTC0802U", "TTTC0801U", "TTTC8434R"):
                 self.assertNotIn(bad, src, "%s has a live-account TR id %s" % (rel, bad))
             if rel.replace(os.sep, "/") != "krcommon/kis.py":
@@ -75,6 +77,20 @@ class Repo(unittest.TestCase):
         for p in text_files():
             with open(p, encoding="utf-8", errors="replace") as fh:
                 self.assertNotIn(live_host, fh.read(), os.path.relpath(p, ROOT))
+
+    def test_toss_account_code_only_reads(self):
+        with open(os.path.join(ROOT, "krcommon", "tossacct.py"), encoding="utf-8") as fh:
+            acct = fh.read()
+        for bad in ('"POST"', "'POST'", '"PUT"', '"DELETE"', '"PATCH"', "transport(", "urllib", "urlopen"):
+            self.assertNotIn(bad, acct, "tossacct.py has %s" % bad)
+        self.assertEqual(re.findall(r'self\._get\("([^"]+)"', acct),
+                         ["/api/v1/accounts", "/api/v1/holdings", "/api/v1/orders"])
+        self.assertEqual(re.findall(r"self\.c\.(\w+)\(", acct), ["get"])
+        with open(os.path.join(ROOT, "krcommon", "toss.py"), encoding="utf-8") as fh:
+            client = fh.read()
+        # 토스 클라이언트가 GET 아닌 요청을 보내는 곳은 토큰 발급 하나뿐이다
+        self.assertEqual(re.findall(r'transport\("(\w+)"', client), ["POST", "GET"])
+        self.assertIn('self.transport("POST", self.base + "/oauth2/token"', client)
 
     def test_config_example_is_safe_and_complete(self):
         with open(os.path.join(ROOT, "trader-kr-budget", "config.example.json"), encoding="utf-8") as fh:

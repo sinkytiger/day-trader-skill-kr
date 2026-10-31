@@ -43,7 +43,7 @@ python "${CLAUDE_SKILL_DIR}/today.py" --offline bars --status status.json --now 
 | 09:00 ~ 09:15 | 시가 범위 형성 중. 새 진입을 보기 시작하는 시각과 첫 신호가 날 수 있는 시각 |
 | 09:15 ~ 14:50 | 시가 범위 돌파 스캔 -> 후보마다 진입 확인 -> 청산 계획 -> 수량 -> 위험 점검 -> 통과 후보 재생 |
 | 14:50 ~ 15:30 | 새 진입 없음. 열린 거래(일지)와 15:15 정리 시각 |
-| 15:30 뒤 | 오늘 거래 일지 (`/trader-kr-journal report`) |
+| 15:30 뒤 | 오늘 거래 일지 (`/trader-kr-journal report`, 토스증권에서 거래했으면 먼저 `sync`) |
 | 휴장 | 휴장이라고 말하고 열린 거래만 |
 
 늦게 여는 날은 토스증권 장 운영 정보로 시각을 옮긴다. 시각은 `trader-kr/config.json` 의 `no_entries_before`,
@@ -66,6 +66,8 @@ python "${CLAUDE_SKILL_DIR}/today.py" --offline bars --status status.json --now 
 4. 신호 뒤 15분이 지난 후보는 늦은 진입이라고 말한다.
 5. 사용자가 샀다고 하면 가격, 시각, 수량을 묻고 그 후보의 계획으로 일지에 적는다:
    `python "${CLAUDE_SKILL_DIR}/../trader-kr-journal/journal.py" open --plan trader-kr/today/<종목>/plan.json --orders trader-kr/today/<종목>/orders.json --entry-price 가격 --entry-time HH:MM --qty 수량`
+   토스증권 앱에서 샀다면 `python "${CLAUDE_SKILL_DIR}/../trader-kr-journal/journal.py" sync` 로 체결을 읽어 오면
+   이 후보의 계획과 묶인다 (읽기만).
 6. 한 후보를 더 자세히 보고 싶다고 하면 `trader-kr/today/report.md` 의 그 후보 부분을 보여 주거나 각 스킬을 따로 부른다.
 7. 처음 재생하는 종목은 지난 60 거래일 1분봉을 받느라 종목당 1~3분 걸린다고 미리 말한다. 급하면 `--sim 0`.
 
@@ -97,7 +99,8 @@ python "${CLAUDE_SKILL_DIR}/today.py" --offline bars --status status.json --now 
 
 - 교육과 도구일 뿐 투자 권유가 아닙니다 (not financial advice). 카드는 계산 결과이지 추천이 아닙니다.
 - 주문은 trader-kr-broker 만 냅니다. 한국투자증권 모의투자 계좌로만 보내고, 이 팩의 어떤 스크립트도 토스증권
-  주문·계좌 API 나 실전 계좌를 부르지 않습니다.
+  주문 API(주문·정정·취소·조건주문)나 실전 계좌를 부르지 않습니다. 토스증권 계좌는 trader-kr-journal 이
+  읽기만 합니다 (보유 주식, 주문 내역).
 - 기본값은 보내지 않음 (`"send_orders": false`) 이고, 바꾸는 것은 사용자입니다. 주문은 세 가지가 모두 맞을 때만
   나갑니다: trader-kr-risk 가 오늘 그 주문 그대로 통과시켰고, 사용자가 채팅에서 그 주문 하나에 yes 라고 했고,
   Claude 의 도구 승인 카드에서 한 번만 허용을 눌렀을 때.

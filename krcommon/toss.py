@@ -1,6 +1,8 @@
 """토스증권 Open API 시세 클라이언트. 표준 라이브러리만 쓴다.
 
-이 팩은 시세·종목 정보만 읽는다 (캔들, 현재가, 호가창, 상·하한가, 종목 정보, 유의사항, 장 운영 정보, 랭킹). 주문·계좌 API 는 부르지 않는다.
+이 클라이언트는 GET 만 보낸다 (토큰 발급 POST 하나 빼고). 여기서는 시세·종목 정보를 읽고
+(캔들, 현재가, 호가창, 상·하한가, 종목 정보, 유의사항, 장 운영 정보, 랭킹), 본인 계좌 읽기는
+tossacct.py 가 이 클라이언트로 한다. 주문 넣기·정정·취소와 조건주문 API 는 부르지 않는다.
 
 인증 정보 (아래 순서로 찾는다. 값은 화면에 찍지 않는다):
   1. 환경변수 TOSS_CLIENT_ID, TOSS_CLIENT_SECRET
@@ -28,7 +30,7 @@ BASE = "https://openapi.tossinvest.com"
 UA = "day-trader-skill-kr/0.1 (+https://github.com/sinkytiger/day-trader-skill-kr)"
 # 문서의 그룹별 초당 한도에 여유를 둔 값
 TPS = {"AUTH": 4, "STOCK": 4, "STOCK_ALL": 1, "MARKET_INFO": 2, "MARKET_DATA": 12,
-       "MARKET_DATA_CHART": 16, "RANKING": 4}
+       "MARKET_DATA_CHART": 16, "RANKING": 4, "ACCOUNT": 0.8, "ASSET": 4, "ORDER_HISTORY": 4}
 MAX_RETRY = 4
 TOKEN_MARGIN = 300   # 만료 5분 전이면 새로 받는다
 
@@ -168,14 +170,15 @@ class Client(object):
             self.sleep(gap - (now - last))
         self._last[group] = self.clock()
 
-    def get(self, path, params=None, group="MARKET_DATA"):
+    def get(self, path, params=None, group="MARKET_DATA", headers=None):
         q = urllib.parse.urlencode([(k, _q(v)) for k, v in (params or {}).items() if v is not None])
         url = self.base + path + ("?" + q if q else "")
         refreshed = False
         for attempt in range(MAX_RETRY + 1):
             self._throttle(group)
-            status, hdrs, text = self.transport("GET", url, {"Authorization": "Bearer " + self.token(),
-                                                            "Accept": "application/json", "User-Agent": UA}, None)
+            h = {"Authorization": "Bearer " + self.token(), "Accept": "application/json", "User-Agent": UA}
+            h.update(headers or {})
+            status, hdrs, text = self.transport("GET", url, h, None)
             self.calls += 1
             if status == 200:
                 try:

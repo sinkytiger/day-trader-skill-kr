@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """거래 일지 (trader-kr-journal): 실제 진입과 청산을 적고, 계획을 얼마나 지켰는지 숫자로 본다.
-표준 라이브러리만 쓴다. 주문을 내지 않고 증권사를 부르지 않는다. 체결 가격은 사용자가 알려 준 대로 적는다.
+표준 라이브러리만 쓴다. 주문을 내지 않는다. 체결은 사용자가 알려 준 대로 적거나, sync 로 토스증권 계좌의
+주문 내역을 읽어 적는다 (krcommon/tossacct.py, GET 만 보낸다).
 
     python journal.py open --entry-price 30450 --qty 119            # trader-kr/plan.json 의 계획으로 진입 기록
     python journal.py open --symbol 005930 --entry-price 72300 --qty 10 --stop 71700 --entry-time 10:20
@@ -9,6 +10,9 @@
     python journal.py list                                         # 기록 목록
     python journal.py report                                       # 성적과 계획 준수
     python journal.py report --since 2026-10-01 --json
+    python journal.py sync                                         # 토스증권 계좌의 오늘 체결을 읽어 적기
+    python journal.py sync --date 2026-10-30 --symbol 005930 --dry-run
+    python journal.py holdings                                     # 토스증권 보유 주식과 손절가까지 거리
 
 거래마다 재는 것:
   R          (청산가 - 진입가) / 계획 위험 (계획 진입가 - 손절가). 비용 뺀 R 도 같이
@@ -21,11 +25,14 @@
 
 모아 보는 것: 승률, 평균 R(비용 뺀), 손익 합, 낸 비용 합, 늦은 진입과 제때 진입의 평균 R 비교,
 손절을 어겨 더 잃은 돈, 청산 어김과 수량 초과 횟수, 셋업별 평균 R.
+sync 로 적은 거래는 토스증권이 준 실제 수수료·세금으로 손익을 잰다. 청산 이유는 가격으로 짐작한다
+(손절가 이하면 손절, 목표가 이상이면 목표, 청산 시각 뒤면 시간 청산, 나머지는 직접 청산).
 기록은 trader-kr/journal.jsonl 에 한 줄씩 남는다 (저장소에 올리지 않는다).
 """
 
 import argparse
 import datetime
+import glob
 import json
 import os
 import re
@@ -33,7 +40,7 @@ import statistics
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
-from krcommon import krx  # noqa: E402
+from krcommon import krx, tossacct  # noqa: E402
 
 PATH = os.path.join("trader-kr", "journal.jsonl")
 LATE_MINUTES = 15
@@ -126,6 +133,9 @@ def evaluate(r, cfg):
         return out
     exitp = float(r["exit_price"])
     costs = krx.trade_costs(entry, exitp, qty, cr, tr)
+    if r.get("buy_fees") is not None and r.get("sell_fees") is not None:      # 토스증권이 준 실제 비용
+        costs = {"total": float(r["buy_fees"]) + float(r["sell_fees"])}
+        out["costs_from"] = "toss"
     gross = qty * (exitp - entry)
     out.update(pnl_gross=gross, costs=costs["total"], pnl_net=gross - costs["total"], reason=r.get("reason"))
     if risk:
@@ -219,6 +229,260 @@ def report_lines(s, ev):
         L.append("")
         L.append("청산 %d건은 작은 표본입니다. 20건은 넘어야 습관이 보이기 시작합니다." % s["closed"])
     return L
+
+
+# ---------------------------------------------------------------- 토스증권 계좌 읽기 (sync, holdings)
+
+def make_account(seq=None):
+    """시험에서 가짜 계좌로 바꿔 끼운다."""
+    return tossacct.Account(account_seq=seq)
+
+
+def is_mock(r):
+    """trader-kr-broker 가 적은 모의투자 기록. 토스 체결과 섞지 않는다."""
+    return (r.get("note") or "").startswith("KIS 모의")
+
+
+def stop_from_rule(cfg, price):
+    """설정 stop_rule 이 pct:X 면 그 손절가. 다른 규칙은 그날 봉이 있어야 계산되므로 None."""
+    m = re.match(r"^pct:\s*([0-9]+\.?[0-9]*)$", str(cfg.get("stop_rule") or "").strip())
+    if not m or not 0 < float(m.group(1)) < 30 or not price:
+        return None
+    return krx.floor_tick(price * (1 - float(m.group(1)) / 100.0))
+
+
+def guess_reason(r, price, hm, day):
+    if r.get("stop") and price <= float(r["stop"]):
+        return "stop"
+    if r.get("target") and price >= float(r["target"]):
+        return "target"
+    if day == r["date"] and r.get("flat_by") and minutes_between(r["flat_by"], hm) >= 0:
+        return "flat"
+    return "manual"
+
+
+def ro(word):
+    """'로' 또는 '으로' (받침이 있고 ㄹ 이 아니면 으로)."""
+    last = ord(word[-1]) - 0xAC00
+    return word + ("으로" if 0 <= last < 11172 and last % 28 not in (0, 8) else "로")
+
+
+def add_fees(a, b):
+    return None if a is None or b is None else a + b
+
+
+def apply_buy(rows, f, sym, qty, day, hm, cfg, plans, now):
+    mine = [r for r in rows if r["symbol"] == sym and r["date"] == day and r.get("exit_price") is None
+            and not is_mock(r)]
+    linked = [r for r in mine if r.get("toss_orders")]
+    if linked:                                     # 같은 날 나눠 산 것: 평균가로 합친다
+        r = linked[-1]
+        q0 = int(r["qty"])
+        r["entry_price"] = round((float(r["entry_price"]) * q0 + f["avg"] * qty) / (q0 + qty), 2)
+        r["qty"] = q0 + qty
+        r["toss_orders"].append(f["id"])
+        r["buy_fees"] = add_fees(r.get("buy_fees"), f["fees"])
+        return "더 산 것: %s %d주 %s (%s). 합쳐서 %d주, 평균 %s (%s)." % (
+            sym, qty, p(f["avg"]), hm, r["qty"], p(r["entry_price"]), r["id"]), r, False
+    typed = [r for r in mine if not r.get("toss_orders") and int(r["qty"]) == qty]
+    if typed:                                      # 손으로 먼저 적은 기록: 토스 체결 값으로 맞춘다
+        r = typed[-1]
+        old = (float(r["entry_price"]), r["entry_time"])
+        r.update(entry_price=f["avg"], entry_time=hm, toss_orders=[f["id"]], buy_fees=f["fees"], source="toss")
+        if old != (f["avg"], hm):
+            r["typed_entry"] = {"price": old[0], "time": old[1]}
+        return "직접 적은 %s 에 토스 체결을 붙였습니다: %d주 %s (%s)%s." % (
+            r["id"], qty, p(f["avg"]), hm, "" if old == (f["avg"], hm) else
+            ", 적어 둔 %s (%s) 에서 고침" % (p(old[0]), old[1])), r, False
+    fresh = not any(r["symbol"] == sym and r["date"] == day for r in rows)
+    pl = plans.get(sym) if fresh else None
+    pl = pl if (pl and pl.get("date") == day) else {}
+    stop = pl.get("stop")
+    from_rule = stop is None and stop_from_rule(cfg, f["avg"]) is not None
+    if stop is None:
+        stop = stop_from_rule(cfg, f["avg"])
+    rec = {"id": new_id(rows, day, sym), "symbol": sym, "name": pl.get("name"), "date": day, "entry_time": hm,
+           "entry_price": f["avg"], "qty": qty, "setup": pl.get("setup"), "signal_time": pl.get("entry_time"),
+           "plan_entry": pl.get("entry"), "stop": stop, "target": pl.get("target"), "flat_by": pl.get("flat_by"),
+           "note": "토스 체결 (sync)", "source": "toss", "toss_orders": [f["id"]], "buy_fees": f["fees"],
+           "recorded_at": now.strftime("%Y-%m-%d %H:%M:%S")}
+    rows.append(rec)
+    return "산 것: %s %d주 %s (%s)%s%s (%s)." % (
+        sym, qty, p(f["avg"]), hm, ", 계획과 묶음" if pl else "",
+        (", 손절 %s%s" % (p(stop), " (설정 %s)" % cfg.get("stop_rule") if from_rule else "")) if stop else ", 손절가 없음",
+        rec["id"]), rec, False
+
+
+def apply_sell(rows, f, sym, qty, day, hm):
+    said, left = [], qty
+    for r in [r for r in rows if r["symbol"] == sym and r.get("exit_price") is None and not is_mock(r)]:
+        if left <= 0:
+            break
+        take = min(int(r["qty"]), left)
+        rec = r
+        if take < int(r["qty"]):                   # 일부만 판 것: 판 만큼 떼어 닫는다
+            rec = dict(r, id=new_id(rows, r["date"], sym), qty=take, toss_orders=list(r.get("toss_orders") or []))
+            if r.get("buy_fees") is not None:
+                rec["buy_fees"] = r["buy_fees"] * take / float(r["qty"])
+                r["buy_fees"] = r["buy_fees"] - rec["buy_fees"]
+            r["qty"] = int(r["qty"]) - take
+            rows.append(rec)
+        reason = guess_reason(rec, f["avg"], hm, day)
+        rec.update(exit_price=f["avg"], exit_time=hm, exit_date=day, reason=reason, reason_guessed=True,
+                   sell_fees=None if f["fees"] is None else f["fees"] * take / float(qty))
+        rec["toss_orders"] = (rec.get("toss_orders") or []) + [f["id"]]
+        left -= take
+        said.append(("판 것: %s %d주 %s (%s), %s 봤습니다 (%s)." % (
+            sym, take, p(f["avg"]), hm, ro(REASONS[reason]), rec["id"]), rec, True))
+    if left > 0:
+        said.append(("일지에 없는 %s %d주를 %s 에 팜 (%s). 전부터 갖고 있던 주식이면 적지 않습니다." % (
+            sym, left, p(f["avg"]), hm), None, False))
+    return said
+
+
+def apply_fills(rows, fills, cfg, plans, now):
+    """토스 체결을 시간순으로 rows 에 반영한다 (rows 를 고친다). [(알릴 말, 바뀐 기록 또는 None, 이번에 닫았나)].
+    반영한 주문 번호는 toss_orders 에 남아, 다시 돌려도 두 번 적지 않는다."""
+    seen = set()
+    for r in rows:
+        seen.update(r.get("toss_orders") or [])
+    said = []
+    for f in sorted(fills, key=lambda x: (x["at"] or "", x["id"])):
+        if f["id"] in seen:
+            continue
+        seen.add(f["id"])
+        try:
+            sym = krx.norm_symbol(f["symbol"])
+            at = krx.parse_iso(f["at"])
+        except krx.KrxError:
+            said.append(("뺀 것: %s 주문 %s (종목이나 시각을 읽지 못함)" % (f["symbol"], f["id"]), None, False))
+            continue
+        if at is None:
+            said.append(("뺀 것: %s 주문 %s (체결 시각이 없음)" % (sym, f["id"]), None, False))
+            continue
+        day, hm, qty = at.date().isoformat(), at.strftime("%H:%M"), int(round(f["qty"]))
+        if f["side"] == "BUY":
+            said.append(apply_buy(rows, f, sym, qty, day, hm, cfg, plans, now))
+        else:
+            said.extend(apply_sell(rows, f, sym, qty, day, hm))
+    return said
+
+
+def cmd_sync(a):
+    now = krx.parse_now(a.now)
+    day = a.date or now.date().isoformat()
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", day):
+        raise JournalError("--date 는 2026-10-31 같은 날짜입니다")
+    only = set(krx.norm_symbol(x) for x in a.symbol or [])
+    cfg = krx.read_config(a.config)
+    plans = {}           # 종목 -> 계획. today 후보별 계획 위에 --plan 을 얹는다
+    for path in sorted(glob.glob(os.path.join("trader-kr", "today", "*", "plan.json"))) + [a.plan]:
+        doc = krx.read_json(path, "계획", required=False)
+        if isinstance(doc, dict) and doc.get("symbol"):
+            plans[str(doc["symbol"])] = doc
+    acct = make_account(a.account_seq)
+    closed = acct.orders("CLOSED", day, day)
+    waiting = acct.orders("OPEN", day, day)
+    fills = [f for f in (tossacct.fill_of(o) for o in closed) if f and (not only or f["symbol"] in only)]
+    rows = load(a.journal)
+    said = apply_fills(rows, fills, cfg, plans, now)
+    print("토스증권 계좌%s %s: 끝난 주문 %d건 중 국내 체결 %d건%s. 읽기만 했습니다." % (
+        " " + acct.masked if acct.masked else "", day, len(closed), len(fills),
+        " (%s 만)" % ", ".join(sorted(only)) if only else ""))
+    if not said:
+        print("  새로 적을 체결이 없습니다.")
+    for msg, rec, closing in said:
+        print("  " + msg)
+        if closing:
+            ev = evaluate(rec, cfg)
+            print("    손익 %s (비용 %s%s)%s" % (krx.won(ev["pnl_net"]), krx.won(ev["costs"]),
+                                          ", 토스증권 값" if ev.get("costs_from") == "toss" else ", 추정",
+                                          (", 비용 뺀 R %+.2f" % ev["R_net"]) if ev.get("R_net") is not None else ""))
+            for fl in ev["flags"]:
+                print("    주의: " + fl)
+    for o in waiting:
+        if o.get("currency") != "KRW" or (only and o.get("symbol") not in only):
+            continue
+        ex = o.get("execution") or {}
+        print("  체결 대기: %s %s %s주%s%s. 끝나면 sync 를 다시 돌리세요." % (
+            o.get("symbol"), "매수" if o.get("side") == "BUY" else "매도", p(tossacct.num(o.get("quantity")) or 0),
+            " 지정가 %s" % p(tossacct.num(o["price"])) if tossacct.num(o.get("price")) else " 시장가",
+            " (%s주 체결)" % p(tossacct.num(ex.get("filledQuantity"))) if tossacct.num(ex.get("filledQuantity")) else ""))
+    if any(closing for _, _, closing in said):
+        print("청산 이유는 가격으로 짐작했습니다. 다르면 journal.py close 번호 --exit-price 가격 --reason 이유 --force 로 고치세요.")
+    if a.dry_run:
+        print("--dry-run: 일지에 적지 않았습니다.")
+    elif any(rec is not None for _, rec, _ in said):
+        save(rows, a.journal)
+    print("교육과 도구일 뿐 투자 권유가 아닙니다 (not financial advice).")
+    return 0
+
+
+def cmd_holdings(a):
+    now = krx.parse_now(a.now)
+    today, hm = now.date().isoformat(), now.strftime("%H:%M")
+    cfg = krx.read_config(a.config)
+    acct = make_account(a.account_seq)
+    items, other = acct.holdings()
+    only = set(krx.norm_symbol(x) for x in a.symbol or [])
+    if only:
+        items = [h for h in items if h["symbol"] in only]
+    opened = [r for r in load(a.journal) if r.get("exit_price") is None and not is_mock(r)
+              and (not only or r["symbol"] in only)]
+    print("토스증권 계좌%s 국내 보유 %d종목 (%s 기준). 읽기만 했습니다." % (
+        " " + acct.masked if acct.masked else "", len(items), now.strftime("%Y-%m-%d %H:%M")))
+    if other:
+        print("해외 %d종목은 이 팩이 다루지 않아 뺐습니다." % other)
+    if not items:
+        print("국내 보유 주식이 없습니다.")
+    head = ["종목", "이름", "수량", "평균가", "현재가", "손익(비용 뒤)", "손절가", "손절까지"]
+    table, warn, held, by_rule, outside = [], [], set(), False, []
+    for h in items:
+        sym = h["symbol"]
+        held.add(sym)
+        mine = [r for r in opened if r["symbol"] == sym]
+        stop = float(mine[-1]["stop"]) if mine and mine[-1].get("stop") else None
+        mark = ""
+        if stop is None:
+            stop = stop_from_rule(cfg, h["avg"])
+            mark = "*" if stop else ""
+            by_rule = by_rule or bool(stop)
+        last = h["last"]
+        gap = "-"
+        if stop and last:
+            gap = "닿음" if last <= stop else "%.1f%% 아래" % (100.0 * (last - stop) / last)
+            if last <= stop and mine:                # 일지에 있는 거래만 알린다 (장기 보유는 표에만)
+                warn.append("%s 현재가(%s)가 손절가(%s) 이하입니다." % (sym, p(last), p(stop)))
+        table.append([sym, (h["name"] or "")[:10], p(h["qty"]), p(round(h["avg"] or 0, 2)), p(last or 0),
+                      "%s (%+.2f%%)" % (krx.won(h["pnl"] or 0), 100.0 * (h["rate"] or 0)),
+                      (p(stop) + mark) if stop else "-", gap])
+        if not mine:
+            outside.append(sym)
+            continue
+        jq = sum(int(r["qty"]) for r in mine)
+        if jq != int(round(h["qty"])):
+            warn.append("%s 일지 %d주, 계좌 %s주. journal.py sync 로 맞추세요." % (sym, jq, p(h["qty"])))
+        for r in mine:
+            if r.get("flat_by") and (r["date"] < today or minutes_between(r["flat_by"], hm) >= 0):
+                warn.append("%s 계획 청산 시각(%s)이 지났습니다 (%s 진입)." % (sym, r["flat_by"], r["date"]))
+    if table:
+        widths = [max(krx.text_width(x) for x in col) for col in zip(head, *table)]
+        for row in [head] + table:
+            print("  " + "  ".join(krx.pad(x, w) for x, w in zip(row, widths)).rstrip())
+    if by_rule:
+        print("  * 일지에 손절가가 없어 설정 stop_rule %s 로 평균가에서 계산한 값." % cfg.get("stop_rule"))
+    if outside:
+        warn.append("일지에 없는 보유: %s. 오늘 산 것이면 journal.py sync 로 가져오세요." % ", ".join(outside))
+    for r in opened:
+        if r["symbol"] not in held:
+            warn.append("%s (%s): 일지에는 열려 있는데 계좌에 없습니다. 팔았으면 journal.py sync 로 가져오세요." % (
+                r["symbol"], r["id"]))
+    if warn:
+        print("확인할 것:")
+        for w in warn:
+            print("  " + w)
+    print("교육과 도구일 뿐 투자 권유가 아닙니다 (not financial advice).")
+    return 0
 
 
 # ---------------------------------------------------------------- 명령
@@ -349,13 +613,25 @@ def main(argv=None):
     q = sub.add_parser("report", help="성적과 계획 준수")
     q.add_argument("--since")
     q.add_argument("--json", action="store_true")
+    q = sub.add_parser("sync", help="토스증권 계좌의 체결을 읽어 적기 (읽기만)")
+    q.add_argument("--date", help="YYYY-MM-DD (기본 오늘, 주문 시각 기준)")
+    q.add_argument("--symbol", action="append", help="이 종목만 (여러 번 줄 수 있음)")
+    q.add_argument("--plan", default="trader-kr/plan.json")
+    q.add_argument("--account-seq", type=int, help="계좌가 여럿일 때 고르는 번호")
+    q.add_argument("--dry-run", action="store_true", help="적지 않고 보여 주기만")
+    q.add_argument("--now")
+    q = sub.add_parser("holdings", help="토스증권 보유 주식과 손절가까지 거리 (읽기만)")
+    q.add_argument("--symbol", action="append", help="이 종목만 (여러 번 줄 수 있음)")
+    q.add_argument("--account-seq", type=int)
+    q.add_argument("--now")
     a = ap.parse_args(argv)
     if not a.cmd:
         ap.print_help()
         return 1
     try:
-        return {"open": cmd_open, "close": cmd_close, "list": cmd_list, "report": cmd_report}[a.cmd](a)
-    except (JournalError, krx.KrxError) as e:
+        return {"open": cmd_open, "close": cmd_close, "list": cmd_list, "report": cmd_report, "sync": cmd_sync,
+                "holdings": cmd_holdings}[a.cmd](a)
+    except (JournalError, krx.KrxError, tossacct.AccountError) as e:
         print("journal.py: %s" % e, file=sys.stderr)
         return 1
 
