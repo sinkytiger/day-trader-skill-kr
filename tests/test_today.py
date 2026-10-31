@@ -86,6 +86,12 @@ class Offline(unittest.TestCase):
         code, text = self.call("2026-10-28 10:15:30", "--budget", "5000000", "--sim", "0")
         self.assertIn("1. PASS      SYN001", text)
 
+    def test_config_stop_rule_flows_into_the_card(self):
+        krx.write_json("trader-kr/config.json", dict(krx.read_json("trader-kr/config.json", "설정"), stop_rule="pct:5"))
+        code, text = self.call("2026-10-28 10:15:30", "--sim", "0")
+        self.assertEqual(code, 0, text)
+        self.assertIn("손절 28,900 / 목표", text)
+
     def test_each_time_of_day(self):
         cases = {"09:05": ("forming", "시가 범위 (15분) 형성 중"),
                  "15:00": ("late", "새 진입 마감(14:50)이 지났습니다"),

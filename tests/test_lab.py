@@ -33,6 +33,23 @@ class Rule(unittest.TestCase):
             self.assertEqual(t["exit"], 30050)                      # 1칸 밀림
         self.assertLess(t["R_net"], t["R"])
 
+    def test_percent_stop_without_a_target(self):
+        Dd = self.days["2026-10-28"]
+        v = {"or_minutes": 15, "stop": "pct", "pct": 5.0, "target_r": None, "vol_x": None, "cost_filter": False}
+        t = lab.run_rule(Dd, v, COST)
+        self.assertEqual(t["stop"], lab.krx.floor_tick(t["entry"] * 0.95))
+        self.assertIsNone(t["target"])
+        self.assertIn(t["outcome"], ("flat", "stop", "gap"))
+
+    def test_grid_adds_percent_stop_rules_only_when_asked(self):
+        self.assertEqual(len(lab.default_grid()), 48)
+        g = lab.default_grid(5)
+        self.assertEqual(len(g), 80)
+        names = [lab.name(v) for v in g]
+        self.assertIn("ORB15 5%손절 목표없음", names)
+        self.assertIn("ORB30 5%손절 1.5R 거래량1.5x 비용필터", names)
+        self.assertEqual(len(set(names)), 80)
+
     def test_gap_below_the_stop_fills_at_the_open(self):
         Dd = [dict(b) for b in self.days["2026-10-28"]]
         Dd[15] = dict(Dd[15], o=29800, h=29850, l=29700, c=29750)

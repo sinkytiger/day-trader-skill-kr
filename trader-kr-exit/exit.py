@@ -288,7 +288,7 @@ def limits_for(info, day, today, online, a):
 def build_plan(a, now_kst):
     info = gather(a)
     cfg = krx.read_config(a.config)
-    stop_text = a.stop
+    stop_text = a.stop or (str(cfg.get("stop_rule") or "").strip() or None)
     if not stop_text:
         if info["setup"] != "orb":
             raise PlanError("%s 셋업은 기본 손절이 없습니다. --stop price:X, pct:X, atr:K 중 하나를 주세요" % info["setup"])

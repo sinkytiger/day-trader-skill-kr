@@ -23,5 +23,6 @@
   "allow_short": false,
   "require_market_status": true,
   "max_cost_to_risk": 0.3,
-  "use_book_slippage": true
+  "use_book_slippage": true,
+  "stop_rule": ""
 }

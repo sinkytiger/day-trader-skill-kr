@@ -86,6 +86,19 @@ class Commands(unittest.TestCase):
         self.assertEqual(plan["price_limits"]["upper"], 39000)
         self.assertIn("손익비", text)
 
+    def test_config_stop_rule_is_the_default_stop(self):
+        with open("trader-kr/config.json", "w", encoding="utf-8") as fh:
+            json.dump({"stop_rule": "pct:5"}, fh)
+        code, text = self.run_main(["plan", "--no-network", "--now", "2026-10-28 10:16", "--prev-close", "30000",
+                                    "--write"])
+        self.assertEqual(code, 0, text)
+        with open("trader-kr/plan.json", encoding="utf-8") as fh:
+            plan = json.load(fh)
+        self.assertEqual(plan["stop"], 28900)                 # 30,450 x 0.95 = 28,927.5 -> 50원 단위 내림
+        self.assertIn("진입가 아래 5%", text)
+        code, text = self.run_main(["plan", "--no-network", "--now", "2026-10-28 10:16", "--stop", "or-mid", "--json"])
+        self.assertEqual(json.loads(text)["stop"], 30100)     # --stop 을 주면 그것이 먼저
+
     def test_atr_stop_reads_the_session_bars(self):
         code, text = self.run_main(["plan", "--no-network", "--now", "2026-10-28 10:16", "--stop", "atr:1",
                                     "--offline", "SYN001.json", "--json"])

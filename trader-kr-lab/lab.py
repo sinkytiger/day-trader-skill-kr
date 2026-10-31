@@ -59,7 +59,8 @@ def p(x):
 
 # ---------------------------------------------------------------- 규칙
 
-def default_grid():
+def default_grid(stop_pct=None):
+    """기본 48개. stop_pct 를 주면 진입가 아래 X% 손절 규칙 32개 (목표 1R, 1.5R, 2R, 목표 없음) 를 더한다."""
     out = []
     for orm in (15, 30):
         for stop in ("or_mid", "or_low"):
@@ -67,12 +68,21 @@ def default_grid():
                 for vx in (None, 1.5):
                     for cf in (False, True):
                         out.append({"or_minutes": orm, "stop": stop, "target_r": r, "vol_x": vx, "cost_filter": cf})
+    if stop_pct:
+        for orm in (15, 30):
+            for r in (1.0, 1.5, 2.0, None):
+                for vx in (None, 1.5):
+                    for cf in (False, True):
+                        out.append({"or_minutes": orm, "stop": "pct", "pct": float(stop_pct), "target_r": r, "vol_x": vx,
+                                    "cost_filter": cf})
     return out
 
 
 def name(v):
-    return "ORB%d %s %gR%s%s" % (v["or_minutes"], {"or_mid": "중간손절", "or_low": "저가손절"}[v["stop"]], v["target_r"],
-                                 " 거래량%gx" % v["vol_x"] if v["vol_x"] else "", " 비용필터" if v["cost_filter"] else "")
+    stop = "%g%%손절" % v["pct"] if v["stop"] == "pct" else {"or_mid": "중간손절", "or_low": "저가손절"}[v["stop"]]
+    target = "%gR" % v["target_r"] if v["target_r"] else "목표없음"
+    return "ORB%d %s %s%s%s" % (v["or_minutes"], stop, target, " 거래량%gx" % v["vol_x"] if v["vol_x"] else "",
+                                " 비용필터" if v["cost_filter"] else "")
 
 
 def run_rule(Dd, v, cost):
@@ -91,7 +101,10 @@ def run_rule(Dd, v, cost):
     if k is None:
         return None
     e = krx.ceil_tick(Dd[k]["c"])
-    s = krx.floor_tick((oh + ol) / 2.0 if v["stop"] == "or_mid" else ol)
+    if v["stop"] == "pct":
+        s = krx.floor_tick(e * (1 - v["pct"] / 100.0))
+    else:
+        s = krx.floor_tick((oh + ol) / 2.0 if v["stop"] == "or_mid" else ol)
     risk = e - s
     if risk < max(2 * krx.tick_size(s), e * 0.0005):
         return None
@@ -99,7 +112,7 @@ def run_rule(Dd, v, cost):
     cost_stop = e * cr + s * (cr + tr)
     if v["cost_filter"] and cost_stop > cost["max_cost_to_risk"] * risk:
         return None
-    t = krx.round_tick(e + v["target_r"] * risk)
+    t = krx.round_tick(e + v["target_r"] * risk) if v["target_r"] else None      # 목표 없음: 손절 아니면 청산 시각
     exitp, outcome = None, None
     for b in Dd[k + 1:FLAT_SLOT + 1]:
         if b["o"] <= s:
@@ -108,7 +121,7 @@ def run_rule(Dd, v, cost):
         if b["l"] <= s:
             exitp, outcome = s - slip * krx.tick_size(s), "stop"
             break
-        if b["h"] >= t:
+        if t is not None and b["h"] >= t:
             exitp, outcome = t, "target"
             break
     if exitp is None:
@@ -354,6 +367,7 @@ def main(argv=None):
     q.add_argument("--test", type=int, default=20)
     q.add_argument("--min-trades", type=int, default=30, help="학습 기간에 고를 수 있는 최소 거래 수")
     q.add_argument("--slip-ticks", type=int, default=1, help="손절·시간 청산 때 밀리는 호가 칸 (기본 1)")
+    q.add_argument("--stop-pct", type=float, help="진입가 아래 X%% 손절 규칙도 시험 (설정 stop_rule 이 pct:X 면 자동)")
     q.add_argument("--config", default="trader-kr/config.json")
     q.add_argument("--offline", metavar="DIR", help="저장된 1분봉 파일 폴더")
     q.add_argument("--now")
@@ -383,7 +397,18 @@ def main(argv=None):
             raise LabError("자료를 받은 종목이 없습니다")
         cost = {"commission_rate": float(cfg.get("commission_rate") or 0), "sell_tax_rate": float(cfg.get("sell_tax_rate") or 0),
                 "slip_ticks": a.slip_ticks, "max_cost_to_risk": float(cfg.get("max_cost_to_risk") or 0.3)}
-        res = experiment(by, default_grid(), cost, a.train, a.test, a.min_trades)
+        stop_pct = a.stop_pct
+        rule = str(cfg.get("stop_rule") or "").strip().lower()
+        if stop_pct is None and rule.startswith("pct:"):
+            try:
+                stop_pct = float(rule[4:])
+            except ValueError:
+                raise LabError("설정 stop_rule %r 를 읽지 못했습니다 (예: pct:5)" % cfg.get("stop_rule"))
+        if stop_pct is not None and not 0 < stop_pct < 30:
+            raise LabError("--stop-pct 는 0 과 30 사이입니다")
+        if stop_pct and progress:
+            progress("진입가 아래 %g%% 손절 규칙 32개를 더해 80개 규칙을 시험합니다." % stop_pct)
+        res = experiment(by, default_grid(stop_pct), cost, a.train, a.test, a.min_trades)
         res["verdict"] = verdict(res)
         if a.write:
             krx.write_json(a.write, res)
