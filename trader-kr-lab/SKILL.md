@@ -8,8 +8,8 @@ description: >-
   성적의 차이(고르는 착시)를 보여 준다. 수수료, 매도 거래세 0.20%, 손절·시간 청산 밀림, 손절가 아래 갭을 넣고,
   비용이 이익에서 가져간 몫과 비용 필터의 효과를 잰다. 답은 대개 "남는 게 없다" 이고, 그 답도 그대로 말한다.
   사용자가 "이 전략 돈 돼?", "백테스트 제대로", "규칙 검증", "과최적화", "워크포워드", "수익 나는 규칙 찾아 줘",
-  "does this strategy work", "walk-forward" 라고 하면 쓴다. 주문을 내지 않는다.
-argument-hint: "run --symbols 005930,000660 | --top 10 [--sessions 250] [--train 120] [--test 20]"
+  "미래 검증", "규칙 잠가 줘", "does this strategy work", "walk-forward" 라고 하면 쓴다. 주문을 내지 않는다.
+argument-hint: "run --symbols 005930,000660 | --top 10 [--sessions 250] | forward lock --rule \"이름\" --symbols ... | forward update"
 ---
 
 # trader-kr-lab
@@ -26,6 +26,8 @@ python "${CLAUDE_SKILL_DIR}/lab.py" run --top 10 --write                      # 
 python "${CLAUDE_SKILL_DIR}/lab.py" run --symbols 005930 --train 60 --test 20 --slip-ticks 2
 python "${CLAUDE_SKILL_DIR}/lab.py" run --top 10 --stop-pct 5                # 진입가 아래 5% 손절 규칙 32개를 더해 80가지
 python "${CLAUDE_SKILL_DIR}/lab.py" run --symbols 005930 --json
+python "${CLAUDE_SKILL_DIR}/lab.py" forward lock --rule "ORB30 저가손절 2R 거래량1.5x" --symbols 005930,000660 --name orb30
+python "${CLAUDE_SKILL_DIR}/lab.py" forward update --name orb30                 # 장 마감 뒤, 매주
 ```
 
 ## 읽고 쓰는 것
@@ -36,6 +38,8 @@ python "${CLAUDE_SKILL_DIR}/lab.py" run --symbols 005930 --json
 | KRX 일별매매정보 | `--top` 일 때만, 거래대금 순위 (KRX 키 필요) |
 | `trader-kr/config.json` | 수수료, 매도세, 비용 필터 기준 (`max_cost_to_risk`, 기본 0.3) |
 | `trader-kr/lab.json` | `--write` 때: 규칙별 표, 폴드별 선택, 시험 기간 성적, 비용 |
+| `trader-kr/forward/<이름>.lock.json` | `forward lock`: 잠근 규칙, 종목, 비용, 잠근 날, 판정 건수, 체결 계산 지문. 고치지 않는다 |
+| `trader-kr/forward/<이름>.json` | `forward update`: 종목별 거래일 수, 거래, 성적, 판정 |
 
 ## 규칙과 체결 가정
 
@@ -58,6 +62,25 @@ python "${CLAUDE_SKILL_DIR}/lab.py" run --symbols 005930 --json
    뒤 `--test` 거래일에만 적용한다. 밀며 되풀이해 시험 기간 거래만 모은다. 그 평균 R 과 95% 부트스트랩 구간이
    답이다. 고를 때 평균 R 과 시험 기간 평균 R 의 차이가 고르는 데서 생긴 착시다.
 3. **비용.** 비용 전·후 평균 R, 비용이 비용 전 이익에서 가져간 몫, 비용 필터를 켠 규칙과 끈 규칙 비교.
+
+## 미래 검증 (forward)
+
+워크포워드도 지난 자료다. 가장 깨끗한 검증은 규칙을 먼저 정해 두고 그 뒤에 생기는 거래일에만 적용하는 것이다.
+
+1. **잠그기.** `forward lock` 이 규칙 하나(`run` 표의 이름 그대로), 종목, 비용(설정의 수수료·매도세, 밀림 칸,
+   비용 필터 기준)을 잠근다. 잠근 날 뒤의 거래일만 대상이다 (장중에 잠가도 그날은 빠진다). 같은 이름이 있으면
+   덮어쓰지 않는다. 다른 규칙은 새 `--name` 으로 잠근다.
+2. **다시 재기.** `forward update` 는 새 1분봉을 받아 잠근 날 뒤의 온전한 거래일에 `run` 과 같은 체결 계산을
+   적용한다. 잠근 파일이 바뀌었거나(지문), 규칙 정의나 체결 계산(`run_rule`)이 잠근 뒤 바뀌었으면 멈춘다. 자료를
+   못 읽은 종목이 있거나, 다른 종목은 거래일이 있는데 거래일이 0일인 종목이 있으면 빠진 채로 성적을 내지 않고 멈춘다.
+3. **판정 (잠글 때 정함).** 처음 `--judge-trades` 건(기본 200)의 비용 뺀 평균 R 95% 부트스트랩 구간 아래쪽이
+   0보다 크면 "넘음", 아니면 "넘지 못함". 그 건수 전에는 "아직 (표본 부족)". 판정은 처음 200건으로 한 번만 한다.
+   매주 들여다보다 좋을 때 멈추면 우연이 섞이기 때문이다. 그 뒤 거래는 참고로만 보인다.
+
+20~30건으로는 아무것도 말할 수 없다. 거래대금 상위 10종목 250거래일 실험 한 번에서 시험 기간 거래 1건의 표준편차가
+약 0.62R 이었다. 그 흩어짐이면 진짜 기대값 +0.1R 을 0과 구별하는 데 약 238건이 필요하고(한쪽 95%, 검정력 80%),
+하루 0.8건이면 1년쯤 걸린다.
+update 결과를 말할 때는 판정 줄을 그대로 말하고, "아직" 이면 몇 건 남았는지만 말한다.
 
 ## 절차
 

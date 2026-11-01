@@ -135,5 +135,151 @@ class Command(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class Forward(unittest.TestCase):
+    RULE = "ORB15 중간손절 1R"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.old = os.getcwd()
+        os.chdir(self.tmp)
+        self.charts = {"SYN001": synth.make_history(), "SYN002": second_symbol()}
+        for sym, ch in self.charts.items():
+            self.save(sym, ch)
+
+    def tearDown(self):
+        os.chdir(self.old)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def save(self, sym, ch):
+        with open(sym + ".json", "w", encoding="utf-8") as fh:
+            json.dump(dict(ch, symbol=sym), fh)
+
+    def cli(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = lab.main(list(args))
+        return code, out.getvalue(), err.getvalue()
+
+    def lock(self, symbols="SYN001,SYN002", rule=RULE, now="2026-10-20 16:00", name="t1"):
+        return self.cli("forward", "lock", "--rule", rule, "--symbols", symbols, "--name", name, "--now", now)
+
+    def update(self, name="t1", now="2026-10-29 08:00"):
+        code, out, err = self.cli("forward", "update", "--name", name, "--offline", ".", "--now", now, "--json")
+        return code, (json.loads(out) if code == 0 else None), err
+
+    def test_lock_refuses_to_overwrite(self):
+        code, out, _ = self.lock()
+        self.assertEqual(code, 0)
+        self.assertIn("forward update --name t1", out)
+        self.assertIn("not financial advice", out)
+        path = os.path.join("trader-kr", "forward", "t1.lock.json")
+        with open(path, encoding="utf-8") as fh:
+            before = fh.read()
+        code, _, err = self.lock(rule="ORB30 저가손절 2R")
+        self.assertEqual(code, 1)
+        self.assertIn("이미 있습니다", err)
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), before)
+        doc = json.loads(before)
+        self.assertEqual((doc["after"], doc["first_session"], doc["judge_trades"]), ("2026-10-20", "2026-10-21", 200))
+
+    def test_rule_names_must_match_the_lab(self):
+        self.assertEqual(self.lock(rule="ORB99 중간손절 1R")[0], 1)
+        code, out, _ = self.lock(rule="ORB30 5%손절 1.5R", name="pct")       # X% 손절은 이름에서 X 를 읽는다
+        self.assertEqual(code, 0, out)
+
+    def test_only_sessions_after_the_lock_count(self):
+        self.lock()
+        code, res, err = self.update()
+        self.assertEqual(code, 0, err)
+        after_days = [d.isoformat() for d in synth.business_days(synth.PLAN_DAY, 62) if d.isoformat() > "2026-10-20"]
+        self.assertEqual(res["sessions"], {"SYN001": len(after_days), "SYN002": len(after_days)})
+        self.assertEqual(res["dates"], [after_days[0], after_days[-1]])
+        self.assertTrue(all(t["date"] > "2026-10-20" for t in res["trades"]))
+        self.assertTrue(os.path.exists(os.path.join("trader-kr", "forward", "t1.json")))
+
+    def test_trades_equal_the_lab_engine(self):
+        self.lock()
+        _, res, _ = self.update()
+        v = lab.find_rule(self.RULE)
+        want = []
+        for sym, ch in self.charts.items():
+            for d, Dd in lab.full_sessions(dict(ch, symbol=sym)).items():
+                t = lab.run_rule(Dd, v, COST) if d > "2026-10-20" else None
+                if t:
+                    want.append((d, sym, t["exit"], t["outcome"], round(t["R_net"], 6)))
+        got = [(t["date"], t["symbol"], t["exit"], t["outcome"], t["R_net"]) for t in res["trades"]]
+        self.assertGreater(len(want), 0)
+        self.assertEqual(sorted(got), sorted(want))
+        self.assertEqual(res["stats"]["trades"], len(want))
+        self.assertEqual(res["verdict"], "WAIT")
+
+    def test_missing_symbol_data_stops_the_update(self):
+        self.lock(symbols="SYN001,SYN003")
+        code, _, err = self.update()
+        self.assertEqual(code, 1)
+        self.assertIn("SYN003", err)
+        self.assertIn("멈춥니다", err)
+        self.assertFalse(os.path.exists(os.path.join("trader-kr", "forward", "t1.json")))
+
+    def test_a_symbol_with_no_sessions_after_the_lock_stops_the_update(self):
+        cut = lab.krx.ts_of(lab.datetime.datetime(2026, 10, 21, 0, 0))
+        ch = self.charts["SYN002"]
+        self.save("SYN002", dict(ch, bars=[b for b in ch["bars"] if b["t"] < cut]))
+        self.lock()
+        code, _, err = self.update()
+        self.assertEqual(code, 1)
+        self.assertIn("0일", err)
+
+    def test_an_edited_lock_or_engine_stops_the_update(self):
+        self.lock()
+        path = os.path.join("trader-kr", "forward", "t1.lock.json")
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(dict(doc, symbols=["SYN001"]), fh)
+        code, _, err = self.update()
+        self.assertEqual(code, 1)
+        self.assertIn("바뀌었습니다", err)
+        doc2 = dict(doc, engine="0" * 16)                           # 지문까지 다시 맞춰도 체결 계산이 다르면 멈춘다
+        doc2["hash"] = lab.lock_hash(doc2)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(doc2, fh)
+        code, _, err = self.update()
+        self.assertEqual(code, 1)
+        self.assertIn("run_rule", err)
+
+    def test_nothing_to_judge_before_the_first_session_closes(self):
+        self.lock(now="2026-10-28 16:00")
+        code, res, err = self.update(now="2026-10-29 08:00")
+        self.assertEqual(code, 0, err)
+        self.assertEqual((res["dates"], res["stats"]["trades"], res["verdict"]), (None, 0, "WAIT"))
+        code, out, _ = self.cli("forward", "update", "--offline", ".", "--now", "2026-10-29 08:00")   # 잠금이 하나면 --name 생략
+        self.assertEqual(code, 0)
+        self.assertIn("아직 잠근 날 뒤에", out)
+
+
+class Verdict(unittest.TestCase):
+    @staticmethod
+    def trades(nets):
+        return [{"R": x, "R_net": x, "date": "2026-11-%02d" % (1 + i // 10)} for i, x in enumerate(nets)]
+
+    def judge(self, nets, judge=200):
+        st = lab.forward_stats(self.trades(nets), judge)
+        return lab.forward_verdict(st, judge)[0], st
+
+    def test_thresholds(self):
+        self.assertEqual(self.judge([0.5] * 199)[0], "WAIT")                     # 199건: 구간이 0보다 커도 아직
+        code, st = self.judge([0.4, 0.6] * 100)
+        self.assertEqual(code, "PASS")
+        self.assertEqual((st["judged"]["trades"], st["judged"]["through"]), (200, "2026-11-20"))
+        self.assertEqual(self.judge([-1.0, 1.0] * 100)[0], "FAIL")                 # 평균 0: 구간 아래쪽이 0 아래
+
+    def test_only_the_first_judge_trades_decide(self):
+        code, st = self.judge([-0.2] * 200 + [5.0] * 100)                          # 뒤에 좋아져도 판정은 처음 200건
+        self.assertEqual(code, "FAIL")
+        self.assertGreater(st["avg_R_net"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
