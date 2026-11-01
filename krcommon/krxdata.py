@@ -79,9 +79,11 @@ def parse_row(r, market):
     c = num(r.get("TDD_CLSPRC"))
     if not sym or c is None:
         return None
+    # chg 는 KRX 기준가 대비 (분할·병합·감자·권리락이 조정된 기준가). 하루 수익률 = c / (c - chg) - 1
     return {"symbol": sym, "name": r.get("ISU_NM"), "market": market, "date": None, "o": num(r.get("TDD_OPNPRC")),
             "h": num(r.get("TDD_HGPRC")), "l": num(r.get("TDD_LWPRC")), "c": c, "v": num(r.get("ACC_TRDVOL")) or 0.0,
-            "value": num(r.get("ACC_TRDVAL")), "mktcap": num(r.get("MKTCAP"))}
+            "value": num(r.get("ACC_TRDVAL")), "mktcap": num(r.get("MKTCAP")), "chg": num(r.get("CMPPREVDD_PRC")),
+            "rate": num(r.get("FLUC_RT")), "shares": num(r.get("LIST_SHRS")), "sect": r.get("SECT_TP_NM")}
 
 
 SERVICE = {"KOSPI": "유가증권 일별매매정보", "KOSDAQ": "코스닥 일별매매정보"}

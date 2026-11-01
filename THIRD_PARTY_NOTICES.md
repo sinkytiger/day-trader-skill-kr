@@ -1,0 +1,63 @@
+# 다른 저장소에서 옮기거나 참고한 것
+
+이 저장소의 코드는 MIT 다 ([LICENSE](LICENSE)). 아래 부분은 다른 저장소에서 옮기거나 참고했고, 옮긴 부분은 원래
+라이선스를 그대로 따른다.
+
+## 1. day-trader-skill (MIT)
+
+- 원본: https://github.com/Jakeschincariol/day-trader-skill
+- 저작권: Copyright (c) 2026 Jake Schincariol
+- 쓴 곳: 저장소 전체의 뼈대 (스킬 구성과 "계산은 파이썬, Claude 는 결정하지 않는다" 는 원칙). 국내 시장 규칙과
+  토스증권·KRX·DART 자료로 옮겼다.
+- 라이선스와 원본 저작권 표시는 [LICENSE](LICENSE) 에 그대로 있다.
+
+## 2. anthropics/financial-services, thesis-tracker (Apache License 2.0)
+
+- 원본: https://github.com/anthropics/financial-services
+  의 `plugins/vertical-plugins/equity-research/skills/thesis-tracker/SKILL.md` (커밋 ef165e4160f2, 2026-05-21).
+- 저작권: Anthropic. 원본 저장소에는 따로 적힌 저작권 줄이 없고, 루트 LICENSE 가 Apache License 2.0 이다.
+  NOTICE 파일은 없다.
+- 쓴 곳: `trader-kr-masters/masters.py` 의 "논지 추적 (thesis)" 부분, `trader-kr-masters/SKILL.md` 의 "논지 추적" 절.
+  이 두 부분은 Apache License 2.0 을 따른다. 전문은 [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt).
+- 바꾼 것:
+  - 한국어로 옮겼다. 원본은 Claude 가 따르는 절차 문서이고, 여기서는 그 절차(논지 정의, 갱신 기록, 근거 점수표,
+    촉매 달력, 분기마다 다시 보기)를 명령으로 만들었다 (`thesis new / add / check / show / list`).
+  - 숫자로 쓸 수 있는 근거와 위험은 DART 사업보고서 값과 KRX 시가총액으로 자동 판정한다.
+  - 지난 점검 뒤 나온 DART 공시를 보여 준다.
+  - 매수 논지만 다룬다 (공매도 논지를 뺐다).
+  - 조치(늘림·줄임·정리), 확신도, 목표가, 손절 조건은 사용자가 적는 칸으로만 두었다. 코드와 Claude 는 매수·매도나
+    조치를 제안하지 않는다.
+  - 아침 회의, 포트폴리오 검토, 위험 위원회용 출력 형식은 뺐다.
+- 이 저장소는 Anthropic 이 만들거나 보증한 것이 아니다.
+
+## 3. virattt/ai-hedge-fund (MIT, 참고만)
+
+- 원본: https://github.com/virattt/ai-hedge-fund 의 `hedge_fund/signals/` (graham, buffett, lynch, munger 프롬프트).
+- 쓴 곳: `trader-kr-masters` 의 대가별 관점의 틀 (예: 그레이엄의 안전마진·재무 튼튼함·이익 안정, 린치의 유형 분류와
+  PEG). 프롬프트 문장이나 코드는 옮기지 않았고, 기준은 원저작(그레이엄 『현명한 투자자』, 린치 『전설로 떠나는 월가의
+  영웅』, 버핏 주주서한)과 한국 자료에 맞춰 새로 썼다. 원본처럼 강세·약세 신호와 확신도를 내지 않는다.
+- 원본 라이선스:
+
+```
+MIT License
+
+Copyright (c) 2024 Virat Singh
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```

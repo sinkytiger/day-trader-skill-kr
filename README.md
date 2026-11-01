@@ -2,10 +2,12 @@
 
 [![tests](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml/badge.svg)](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml)
 
-국내 주식(코스피·코스닥) 단타용 Claude 스킬 10종. 차트를 스캔하고, 진입 순간을 알려 주고, 손절가와 목표가를
+국내 주식(코스피·코스닥) 단타용 Claude 스킬 12종. 차트를 스캔하고, 진입 순간을 알려 주고, 손절가와 목표가를
 먼저 정하고, 남은 장을 10,000번 다시 돌려 보고, 최대 손실에 맞춰 수량을 정하고, 한도를 넘는 주문을 막는다. 그리고
 실제 거래를 일지에 적어 계획을 지켰는지 재고, 여러 규칙을 앞 기간에서 골라 뒤 기간에서 확인해 비용을 내고도 남는
 규칙이 있는지 가린다. "오늘 장 봐 줘" 한마디면 지금 시각에 맞춰 이 단계들을 이어서 돌리고 한 장으로 보여 준다.
+장기 투자 전략도 2010년부터의 KRX 자료(상장폐지 종목 포함)로 시장을 그냥 들고 간 것과 비교하고, 한 회사의 사업보고서
+숫자를 그레이엄·버핏·린치의 기준으로 하나씩 재 본다.
 
 [Jake Schincariol 의 day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT, 미국 주식 전용)을
 국내 시장 규칙과 토스증권 Open API 시세로 옮겼다. 계산은 파이썬이 하고 Claude 는 결정하지 않는다는 원본의 원칙은
@@ -17,7 +19,7 @@
 
 > 교육과 도구일 뿐 투자 권유가 아니다 (not financial advice). 단타를 하는 사람 대부분은 돈을 잃는다.
 
-## 스킬 10종
+## 스킬 12종
 
 | 명령 | 이름 | 하는 일 |
 | --- | --- | --- |
@@ -31,6 +33,8 @@
 | `/trader-kr-broker` | 주문 실행 | 한국투자증권 모의투자로만, 위험 점검 PASS, 채팅의 "네", 도구 승인 카드를 모두 지난 주문을 낸다. 체결되면 목표가 지정가를 걸고, watch 가 손절가와 청산 시각을 지킨다 |
 | `/trader-kr-journal` | 거래 일지 | 실제 진입·청산을 적고 늦은 진입, 손절 어김, 청산 시각 어김, 낸 비용을 숫자로 보여 준다. 토스증권에서 산 것은 계좌의 체결 내역을 읽어 적고, 보유 주식이 손절가에서 얼마나 떨어져 있는지 보여 준다 (읽기만) |
 | `/trader-kr-lab` | 전략 검증 실험실 | 48가지 규칙을 앞 120 거래일에서 고르고 뒤 20 거래일에서 확인한다. 우연을 홀름 보정으로 걸러 낸다. 규칙 하나를 잠그고 그 뒤 거래일에만 적용하는 미래 검증도 한다 |
+| `/trader-kr-invest` | 장기 투자 실험실 | 모멘텀, 저변동성, 소형, 52주 고가, 추세 타이밍 등 월 리밸런싱 전략 16가지를 2010년부터의 KRX 일별매매정보(상장폐지 종목 포함)로 시험해, 시가총액 상위 300 을 시가총액 비중대로 들고 가는 기준과 비용 뒤 초과수익으로 비교한다. 지금 살 종목은 내지 않는다 |
+| `/trader-kr-masters` | 투자 대가 점검표 | 한 회사의 DART 사업보고서 숫자(2015년~)와 KRX 시가총액으로 그레이엄 8개, 버핏 7개, 린치 6개 기준을 재고 기준마다 숫자와 충족 여부를 보여 준다. 산 이유(논지)를 근거·위험·촉매로 적어 두고 새 사업보고서와 공시로 다시 보는 논지 추적도 한다. 매수·매도 신호는 내지 않는다 |
 
 원본의 나머지 넷 (뉴스, 가격 알림, 실적 요약, 의원 매매 공시) 은 아직 옮기지 않았다. 뉴스는 DART 공시, 실적 요약은
 DART 재무, 의원 매매는 DART 임원·주요주주 소유보고로 바꿀 계획이다. 주문 실행은 아래 "주문 (모의투자)" 를 보라.
@@ -45,6 +49,9 @@ scanner -> entry -> exit -> timemachine -> budget -> risk      (거래 하나, �
 journal: sync / open / close / holdings / report              (산 뒤, 판 뒤, 주말마다. sync 는 토스 체결 읽기)
 lab: run                                                       (규칙을 바꾸기 전에)
 lab: forward lock -> forward update                            (규칙 하나를 잠그고, 매주 그 뒤 거래일만 다시 잼)
+invest: data -> run / dca                                      (장기 전략을 시장 기준과 비교, KRX 키)
+masters: check --symbol                                        (한 회사를 대가들의 기준으로, DART 키 + KRX 키)
+masters: thesis new -> add -> check                            (논지를 적고, 분기마다 숫자·공시로 다시 봄)
 broker: show -> approve -> place -> watch                      (모의투자, 주문마다 "네" 와 승인 카드)
 ```
 
@@ -114,7 +121,8 @@ cp -r day-trader-skill-kr/trader-kr-* day-trader-skill-kr/krcommon ~/.claude/ski
    python krcommon/doctor.py
    ```
 
-5. (선택) OpenDART 키를 등록하면 그날 공시를 경고한다 (`python krcommon/keys.py dart`, 또는 `DART_API_KEY` 환경변수).
+5. (선택) OpenDART 키를 등록하면 그날 공시를 경고하고, 대가 점검표가 사업보고서 재무제표를 읽는다
+   (`python krcommon/keys.py dart`, 또는 `DART_API_KEY` 환경변수).
    없으면 확인하지 않았다고 말한다. 어떤 키가 어디 있는지는 `python krcommon/keys.py status` 로 본다 (값은 찍지 않는다).
 
 6. 설정 파일을 만든다: `trader-kr-budget/config.example.json` 을 `trader-kr/config.json` 으로 복사하고 숫자를 바꾼다.
@@ -151,6 +159,10 @@ KRX 종가로 재야 하므로, KRX Open API 키가 있으면 한국거래소 �
 KRX 응답이 한 번에 몇 초씩 걸려서 날짜 여섯 개씩 동시에 받는다. 처음 60 거래일을 받는 데 86초, 그다음부터는 캐시에서
 몇 초다 (2026-10-29 실측). 키가 없으면 토스 일봉을 쓰고, 종가 기준이 다르다고 경고한다. 장중 판단과 상·하한가 추정은
 토스 1분봉의 KRX 종가 단일가 봉을 직접 써서 이 문제의 영향을 받지 않는다.
+
+장기 투자 실험실(`/trader-kr-invest`)은 이 키로 2010-01-04 부터의 일별매매정보를 받는다. 평일 약 4,400일, 두 시장이라
+약 8,800건으로 하루 한도 안이고, 날짜 여섯 개씩 동시에 받아 20분쯤 걸린다 (2026-11-01 실측). 보통주만 줄여 날짜마다
+압축해 두면 200MB 쯤이다. 그날 상장된 전 종목이 오므로 그 뒤 상장폐지·합병된 종목도 들어 있다.
 
 ## 미국판에서 바꾼 것
 
@@ -240,7 +252,7 @@ python -m unittest discover -s tests -v
 데모를 돌린다. 시세는 `krcommon/synth.py` 가 만드는 합성 종목 SYN001 (62 거래일, 시드 고정 무작위 걸음, 마지막 날은
 10:15 에 시가 범위를 돌파하도록 정한 모양) 이고, 토스증권 서버는 `tests/fake_toss.py` 가 흉내 낸다. 가짜 서버로
 토큰 저장, 401 재발급, 429 대기, 403 안내, 1분봉 페이지 넘김과 캐시, 계좌 읽기(주문 목록 쪽 넘김, 권한 없음 안내,
-GET 만 보내는지), 가짜 DART 공시, 그리고 스캔부터 위험 점검까지 온라인 흐름 전체를 시험한다. 시험은 실제 키 환경변수를 지우고 돈다. 스킬 문서의 예시 출력은 이 합성 자료에서 실제로 나온 값이다. 실제 시세가 아니므로 시뮬레이션 숫자에는
+GET 만 보내는지), 가짜 DART 공시와 사업보고서 재무제표, 손으로 만든 16년치 일별 표(장기 투자 실험실), 그리고 스캔부터 위험 점검까지 온라인 흐름 전체를 시험한다. 시험은 실제 키 환경변수를 지우고 돈다. 스킬 문서의 예시 출력은 이 합성 자료에서 실제로 나온 값이다. 실제 시세가 아니므로 시뮬레이션 숫자에는
 의미가 없다.
 
 ## 주의
@@ -268,22 +280,29 @@ trader-kr-budget/       SKILL.md, size.py, config.example.json
 trader-kr-risk/         SKILL.md, check.py
 trader-kr-journal/      SKILL.md, journal.py
 trader-kr-lab/          SKILL.md, lab.py
+trader-kr-invest/       SKILL.md, invest.py (장기 전략 대 시장 기준, KRX 일별매매정보 2010년~)
+trader-kr-masters/      SKILL.md, masters.py (그레이엄·버핏·린치 점검표, 논지 추적. DART 재무제표 + KRX 시가총액)
 trader-kr-today/        SKILL.md, today.py (다른 스킬을 시각에 맞춰 이어서 부름)
 trader-kr-broker/       SKILL.md, broker.py (한국투자증권 모의투자 주문, 세 겹 승인)
 krcommon/               krx.py (시장 규칙), toss.py (토스증권 시세), tossacct.py (토스증권 계좌 읽기, GET 만),
                         bars.py (1분봉 캐시, 5분봉), data.py,
-                        dart.py (그날 공시), krxdata.py (KRX 공식 일봉), kis.py (한국투자증권 모의투자), keys.py (키 등록), liquidity.py (호가창),
+                        dart.py (그날 공시), financials.py (DART 사업보고서 재무제표, 시가총액), krxdata.py (KRX 공식 일봉), kis.py (한국투자증권 모의투자), keys.py (키 등록), liquidity.py (호가창),
                         doctor.py (연결 점검), demo.py (키 없이 8단계), synth.py (합성 1분봉)
 tests/                  unittest, 가짜 토스증권 서버
 .github/workflows/      tests.yml (시험과 데모, 키 없음)
+THIRD_PARTY_NOTICES.md  다른 저장소에서 옮기거나 참고한 것 (원본, 라이선스, 바꾼 것)
+LICENSES/               Apache-2.0.txt (논지 추적이 옮긴 원본의 라이선스 전문)
 ```
 
 ## In English
 
-A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): ten Claude skills
+A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): twelve Claude skills
 for KOSPI/KOSDAQ day trades (scanner, entry timer, exit planner, Monte Carlo time machine, position sizing, risk check,
 a trade journal that measures plan adherence, a walk-forward strategy lab with Holm-corrected tests, and a
-one-call "today" skill that runs the right steps for the time of day and prints one card per candidate, and an order
+one-call "today" skill that runs the right steps for the time of day and prints one card per candidate, a long-term
+lab that tests sixteen monthly-rebalanced strategies against a cap-weighted top-300 benchmark on survivorship-free KRX
+daily data since 2010 (it never prints what to buy now), a checklist that scores one company against Graham, Buffett
+and Lynch criteria from DART annual reports and KRX market caps (numbers from code, no buy or sell signals), and an order
 skill that trades only on a Korea Investment & Securities paper account after the same three approvals as the original),
 reading Toss Securities Open API market data. It adds KRX session hours (continuous trading 09:00 to 15:20), tick sizes,
 the ±30% price limits, transaction tax and fees in every loss and reward:risk figure, and blocks on exchange warnings,
@@ -291,4 +310,6 @@ volatility interruptions and trading halts. Orders go only to the KIS paper-trad
 offline on synthetic data, because Toss data may only be used for the account holder's own trading.
 To see all eight steps without any keys, run `python krcommon/demo.py` (synthetic data, no network, about 5 seconds).
 
-MIT. 원본 저작권 표시는 [LICENSE](LICENSE) 에 그대로 있다.
+MIT. 원본 저작권 표시는 [LICENSE](LICENSE) 에 그대로 있다. 논지 추적은 anthropics/financial-services 의 thesis-tracker
+(Apache-2.0) 를 옮기고 고친 것이고, 그 부분은 Apache-2.0 을 따른다. 출처와 바꾼 것은
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), 전문은 [LICENSES/Apache-2.0.txt](LICENSES/Apache-2.0.txt).

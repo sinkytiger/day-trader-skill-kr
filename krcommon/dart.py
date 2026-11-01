@@ -81,6 +81,30 @@ def fetch_day(day, key, transport=None, sleep=time.sleep):
     return out
 
 
+def corp_list(corp_code, start, end, key, transport=None, sleep=time.sleep):
+    """한 회사의 start ~ end 공시 목록 (회사 고유번호로, 접수번호 순). 논지 점검이 지난 점검 뒤 공시를 볼 때 쓴다."""
+    transport = transport or _http
+    out, page, total = [], 1, 1
+    while page <= min(total, MAX_PAGES):
+        q = urllib.parse.urlencode({"crtfc_key": key, "corp_code": corp_code, "bgn_de": start.strftime("%Y%m%d"),
+                                    "end_de": end.strftime("%Y%m%d"), "page_no": page, "page_count": 100})
+        try:
+            doc = json.loads(transport(URL + "?" + q))
+        except ValueError:
+            raise DartError("DART 응답이 JSON 이 아닙니다")
+        status = str(doc.get("status"))
+        if status == "013":
+            break
+        if status != "000":
+            raise DartError("DART 응답 %s: %s" % (status, doc.get("message") or ""))
+        out.extend(doc.get("list") or [])
+        total = int(doc.get("total_page") or 1)
+        page += 1
+        if page <= total:
+            sleep(0.1)
+    return sorted(out, key=lambda r: str(r.get("rcept_no")))
+
+
 def day_list(day, key, cache_dir=CACHE_DIR, now_kst=None, transport=None, sleep=time.sleep):
     """캐시를 거친 그날 공시 목록. 지난 날은 한 번만, 오늘은 10분마다 받는다."""
     now_kst = now_kst or krx.kst_now()

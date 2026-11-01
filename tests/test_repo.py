@@ -7,11 +7,13 @@ from _load import ROOT
 from krcommon import krx
 
 SKILLS = ["trader-kr-scanner", "trader-kr-entry", "trader-kr-exit", "trader-kr-timemachine", "trader-kr-budget",
-          "trader-kr-risk", "trader-kr-journal", "trader-kr-lab", "trader-kr-today", "trader-kr-broker"]
+          "trader-kr-risk", "trader-kr-journal", "trader-kr-lab", "trader-kr-today", "trader-kr-broker",
+          "trader-kr-invest", "trader-kr-masters"]
 SCRIPTS = {"trader-kr-scanner": "scan.py", "trader-kr-entry": "entry.py", "trader-kr-exit": "exit.py",
            "trader-kr-timemachine": "timemachine.py", "trader-kr-budget": "size.py", "trader-kr-risk": "check.py",
            "trader-kr-journal": "journal.py", "trader-kr-lab": "lab.py", "trader-kr-today": "today.py",
-           "trader-kr-broker": "broker.py"}
+           "trader-kr-broker": "broker.py", "trader-kr-invest": "invest.py",
+           "trader-kr-masters": "masters.py"}
 
 
 def frontmatter(path):
@@ -119,6 +121,25 @@ class Repo(unittest.TestCase):
             lic = fh.read()
         self.assertIn("Copyright (c) 2026 Jake Schincariol", lic)
         self.assertIn("MIT License", lic)
+
+    def test_third_party_notices(self):
+        with open(os.path.join(ROOT, "THIRD_PARTY_NOTICES.md"), encoding="utf-8") as fh:
+            notes = fh.read()
+        for need in ("Jakeschincariol/day-trader-skill", "anthropics/financial-services", "thesis-tracker",
+                     "Apache License 2.0", "LICENSES/Apache-2.0.txt", "virattt/ai-hedge-fund", "Copyright (c) 2024 Virat Singh"):
+            self.assertIn(need, notes)
+        with open(os.path.join(ROOT, "LICENSES", "Apache-2.0.txt"), encoding="utf-8") as fh:
+            apache = fh.read()
+        self.assertIn("Apache License", apache)
+        self.assertIn("Version 2.0, January 2004", apache)
+        self.assertIn("TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION", apache)
+        # 옮긴 부분에는 원본과 바꾼 것을 적는다 (Apache-2.0 4(b))
+        for f in ("masters.py", "SKILL.md"):
+            with open(os.path.join(ROOT, "trader-kr-masters", f), encoding="utf-8") as fh:
+                src = fh.read()
+            self.assertIn("thesis-tracker", src, f)
+            self.assertIn("Apache License 2.0", src, f)
+            self.assertIn("바꾼 것", src, f)
 
     def test_readme_names_every_skill(self):
         with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as fh:
