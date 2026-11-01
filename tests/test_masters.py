@@ -151,6 +151,14 @@ class Financials(unittest.TestCase):
         with self.assertRaises(fin.FinError):
             fin.history("000020", key="k", cache=self.tmp, now_kst=NOW, transport=FakeDart())
 
+    def test_find_by_name_puts_the_exact_name_first(self):
+        hits = ms.find("합성", key="k", cache=self.tmp, now_kst=NOW, transport=FakeDart())
+        self.assertEqual(hits, [(SYM, "합성전자"), ("777770", "합성은행")])          # 같은 길이면 코드 순
+        self.assertEqual(ms.find("합성은행", key="k", cache=self.tmp, now_kst=NOW, transport=FakeDart())[0][0], "777770")
+        self.assertEqual(ms.find("합성 전자", key="k", cache=self.tmp, now_kst=NOW, transport=FakeDart()),
+                         [(SYM, "합성전자")])
+        self.assertEqual(ms.find("없는회사", key="k", cache=self.tmp, now_kst=NOW, transport=FakeDart()), [])
+
     def test_market_cap_adds_preferred_shares(self):
         m = fin.market(SYM, key="k", now_kst=NOW, transport=FakeKrx(), cache_dir=self.tmp)
         self.assertEqual(m["date"], "2026-10-30")

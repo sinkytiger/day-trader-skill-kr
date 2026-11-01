@@ -24,7 +24,11 @@ argument-hint: "check --symbol 005930 [--years 10] | thesis new|add|check|show|l
 ```bash
 python "${CLAUDE_SKILL_DIR}/masters.py" check --symbol 005930                # 최근 10 사업연도
 python "${CLAUDE_SKILL_DIR}/masters.py" check --symbol 005930 --years 6 --json
+python "${CLAUDE_SKILL_DIR}/masters.py" find --name 삼성전자                   # 이름으로 종목코드 (기억으로 쓰지 않기)
 ```
+
+회사 이름만 들었으면 기억하는 코드를 쓰지 말고 `find` 로 찾는다. 이 스킬의 순서를 한 번에 돌려 한 장으로 돌려주는
+에이전트는 `@agent-day-trader-skill-kr:trader-kr-analyst` 다 (`agents/trader-kr-analyst.md`).
 
 ## 읽고 쓰는 것
 

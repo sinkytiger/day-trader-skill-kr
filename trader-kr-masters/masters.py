@@ -9,6 +9,7 @@
     python masters.py thesis add --symbol 005930 --data "무엇이 바뀌었나" --impact P1:강화 --conviction 보통
     python masters.py thesis check --symbol 005930       # 숫자 근거·위험 판정, 지난 점검 뒤 공시, 촉매
     python masters.py thesis show --symbol 005930 | thesis list | thesis metrics
+    python masters.py find --name 삼성전자                 # 회사 이름으로 종목코드
 
 기준값은 대가들이 쓴 기준을 한국 자료에 맞춰 이 스크립트가 정한 것이다 (예: 그레이엄의 '매출 1억 달러' 는
 '매출 1조 원'). 기준마다 원래 기준과 바꾼 점을 같이 적는다. 대가별 관점의 틀은 그레이엄 『현명한 투자자』의
@@ -290,6 +291,17 @@ def check(symbol, years=10, now_kst=None, progress=None, dart_transport=None, kr
     for k in ("graham", "buffett", "lynch"):
         doc[k + "_summary"] = summary(doc[k])
     return doc
+
+
+def find(name, key=None, cache=fin.CACHE, now_kst=None, transport=None):
+    """회사 이름(일부)으로 상장사 [(종목코드, 이름)]. 이름이 똑같은 회사가 먼저."""
+    key = key or fin.dart.api_key()
+    if not key:
+        raise fin.FinError("DART_API_KEY 가 없습니다. 터미널에서 python krcommon/keys.py dart 로 넣으세요")
+    want = "".join(name.split())
+    codes = fin.corp_codes(key, cache, now_kst or krx.kst_now(), transport)
+    hits = [(s, v["name"]) for s, v in codes.items() if want in "".join(v["name"].split())]
+    return sorted(hits, key=lambda h: ("".join(h[1].split()) != want, len(h[1]), h[0]))
 
 
 def mark(ok):
@@ -756,6 +768,8 @@ def main(argv=None):
     c.add_argument("--years", type=int, default=10, help="최근 사업연도 수 (기본 10, 2015년부터)")
     c.add_argument("--now")
     c.add_argument("--json", action="store_true")
+    fd = sub.add_parser("find", help="회사 이름으로 종목코드 찾기 (DART 회사 고유번호 목록)")
+    fd.add_argument("--name", required=True)
     t = add_thesis_parser(sub)
     a = ap.parse_args(argv)
     if not a.cmd or (a.cmd == "thesis" and not a.tcmd):
@@ -764,6 +778,13 @@ def main(argv=None):
     try:
         if a.cmd == "thesis":
             return thesis_main(a)
+        if a.cmd == "find":
+            hits = find(a.name)
+            if not hits:
+                print("'%s' 이 이름에 들어간 상장사가 없습니다" % a.name)
+            for sym, nm in hits[:20]:
+                print("  %s %s" % (sym, nm))
+            return 0 if hits else 2
         now = krx.parse_now(a.now)
         if a.years < 3:
             raise MastersError("--years 는 3 이상입니다")

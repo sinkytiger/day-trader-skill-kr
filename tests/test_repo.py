@@ -122,6 +122,24 @@ class Repo(unittest.TestCase):
         self.assertIn("Copyright (c) 2026 Jake Schincariol", lic)
         self.assertIn("MIT License", lic)
 
+    def test_analyst_agent(self):
+        agents = sorted(os.listdir(os.path.join(ROOT, "agents")))
+        self.assertEqual(agents, ["trader-kr-analyst.md"])
+        fm, text = frontmatter(os.path.join(ROOT, "agents", "trader-kr-analyst.md"))
+        self.assertIn("name: trader-kr-analyst\n", fm + "\n")
+        self.assertRegex(fm, r"description: ")
+        self.assertRegex(fm, r"(?m)^tools: Bash, Read, Glob, Grep$")       # 파일을 직접 고치지 않는다
+        self.assertIn("not financial advice", text)
+        self.assertIn("채팅에 붙여 넣지 않습니다", text)
+        self.assertNotIn("CLAUDE_SKILL_DIR", text)                         # 에이전트 본문에서는 바뀌지 않는다
+        paths = re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/([\w./-]+\.py)", text)
+        self.assertEqual(sorted(set(paths)), ["trader-kr-invest/invest.py", "trader-kr-masters/masters.py"])
+        for rel in paths:
+            self.assertTrue(os.path.isfile(os.path.join(ROOT, rel)), rel)
+        # 주문 스크립트는 부르지 않는다고만 적고, 실제로 부르는 명령은 없다
+        self.assertNotRegex(text, r"python [^\n]*broker\.py")
+        self.assertNotIn("$CLAUDE_PLUGIN_ROOT/", text)
+
     def test_third_party_notices(self):
         with open(os.path.join(ROOT, "THIRD_PARTY_NOTICES.md"), encoding="utf-8") as fh:
             notes = fh.read()
