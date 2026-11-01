@@ -33,11 +33,16 @@
 ## 3. 자료와 문서 (코드를 옮기지 않음)
 
 - 자료: 토스증권 Open API (시세, 본인 계좌 읽기. 본인 매매 목적으로만), KRX Open API 유가증권·코스닥 일별매매정보,
-  OpenDART (공시 목록 list.json, 단일회사 전체 재무제표 fnlttSinglAcntAll.json, 배당 alotMatter.json, 회사 고유번호
-  corpCode.xml), 한국투자증권 모의투자 API. 자료와 결과는 저장소에 올리지 않는다 (`trader-kr/` 는 .gitignore).
+  OpenDART (공시 목록 list.json 과 사업보고서 접수 기록, 단일회사 전체 재무제표 fnlttSinglAcntAll.json, 배당
+  alotMatter.json, 기업개황 company.json, 회사 고유번호 corpCode.xml), 한국투자증권 모의투자 API. 자료와 결과는 저장소에 올리지 않는다 (`trader-kr/` 는 .gitignore).
 - 대가 기준: 벤저민 그레이엄 『현명한 투자자』 (방어적 투자자 기준), 피터 린치 『전설로 떠나는 월가의 영웅』
   (유형 분류, PEG, 배당 더한 PEG), 워런 버핏 버크셔 해서웨이 주주서한 (자기자본이익률, 유보이익 1달러 기준).
   기준값은 한국 자료에 맞춰 이 저장소가 정했고, 책의 글은 옮기지 않았다.
+- 가치 규칙 (`trader-kr-invest/value.py`) 의 생각: 저PER 은 S. Basu (1977), "Investment Performance of Common Stocks
+  in Relation to Their Price-Earnings Ratios", Journal of Finance. 장부가 대비 시가는 E. Fama and K. French (1992),
+  "The Cross-Section of Expected Stock Returns", Journal of Finance. 가치와 모멘텀을 함께 보는 것은 C. Asness,
+  T. Moskowitz and L. Pedersen (2013), "Value and Momentum Everywhere", Journal of Finance. 규칙의 꼴(30종목, 4월 말,
+  순위 합)과 기준값은 이 저장소가 정했고, 논문의 글이나 코드는 옮기지 않았다.
 - 에이전트 형식: Claude Code 공식 문서 (https://code.claude.com/docs/en/plugins/manifest-reference.md,
   plugins/components.md, sub-agents.md). `agents/trader-kr-analyst.md` 의 위치, 머리말, `${CLAUDE_PLUGIN_ROOT}` 를
   따랐고 문서의 글은 옮기지 않았다.

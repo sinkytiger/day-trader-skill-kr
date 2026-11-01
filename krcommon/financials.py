@@ -7,14 +7,21 @@
 호출 (OpenDART, 키 DART_API_KEY 또는 ~/.dart/api_key, 키 값은 찍지 않음):
   corpCode.xml           회사 고유번호 (zip). 종목코드 -> corp_code. 30일마다 다시 받는다
   fnlttSinglAcntAll.json 단일회사 전체 재무제표. 연결(CFS)이 없으면 별도(OFS). 2015 사업연도부터
-  alotMatter.json        배당에 관한 사항 (주당 현금배당금, 현금배당금총액)
-캐시: trader-kr/cache/dart/corpcode.json, trader-kr/cache/dart/fs/<corp>_<연도>.json, .../div/<corp>_<연도>.json
+  alotMatter.json        배당에 관한 사항 (주당 현금배당금, 현금배당금총액, 현금배당수익률. 당기·전기·전전기)
+  company.json           기업개황 (업종 코드, 결산월)
+  list.json              사업보고서 접수 기록 (정정 전 첫 접수일. 그날 전에는 그 숫자를 알 수 없었다)
+캐시: trader-kr/cache/dart/corpcode.json, .../fs/<corp>_<연도>.json, .../alot/<corp>_<연도>.json,
+      .../company/<corp>.json, .../filings/<corp>.json
+
+시점 (pit_rows): 어느 날에 알 수 있던 사업보고서만으로 해마다의 숫자를 만든다. 재무제표 API 는 정정된 보고서의 값을
+주므로, 숫자 자체는 그날 뒤에 고쳐진 값일 수 있다 (row["revised_after"]).
 """
 
 import datetime
 import io
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -29,6 +36,7 @@ CACHE = os.path.join("trader-kr", "cache", "dart")
 FIRST_YEAR = 2015                    # DART 전체 재무제표가 있는 첫 사업연도
 CORP_REFRESH_DAYS = 30
 ANNUAL = "11011"                     # 사업보고서
+PERIOD_RE = re.compile(r"\((\d{4})\.(\d{2})\)")   # "사업보고서 (2019.12)" 의 결산 연월
 
 # 표준 계정 (접두어 ifrs-full_, ifrs_, dart_ 를 뗀 이름) -> 항목. 앞에 있는 표가 먼저
 ITEMS = {
@@ -182,10 +190,14 @@ def statements(corp, year, key, cache=CACHE, now_kst=None, transport=None, sleep
     return got
 
 
-def dividends(corp, year, key, cache=CACHE, now_kst=None, transport=None):
-    """그 해 보통주 주당 현금배당금(원)과 현금배당금총액(원). 없으면 None."""
+DIV_COLS = ("thstrm", "frmtrm", "lwfr")   # 당기, 전기, 전전기
+
+
+def dividend_table(corp, year, key, cache=CACHE, now_kst=None, transport=None):
+    """그 해 사업보고서의 배당에 관한 사항 {"thstrm"|"frmtrm"|"lwfr": {"dps", "total", "yield"}}. 없으면 None.
+    dps 는 보통주 주당 현금배당금(원), total 은 현금배당금총액(원), yield 는 회사가 적은 보통주 현금배당수익률 (0.017 꼴)."""
     now_kst = now_kst or krx.kst_now()
-    path = os.path.join(cache, "div", "%s_%d.json" % (corp, year))
+    path = os.path.join(cache, "alot", "%s_%d.json" % (corp, year))
     doc = _read(path)
     if doc is not None:
         return doc.get("data")
@@ -193,20 +205,85 @@ def dividends(corp, year, key, cache=CACHE, now_kst=None, transport=None):
     st = str(res.get("status"))
     got = None
     if st == "000":
-        dps = total = None
-        for r in res.get("list") or []:
-            se = str(r.get("se") or "").replace(" ", "")
-            if se.startswith("주당현금배당금") and str(r.get("stock_knd") or "") == "보통주":
-                dps = krxdata.num(r.get("thstrm"))
-            if se.startswith("현금배당금총액"):
-                v = krxdata.num(r.get("thstrm"))
-                total = v * 1e6 if v is not None else None
-        got = {"dps": dps or 0.0, "total": total or 0.0}
+        got = {}
+        for col in DIV_COLS:
+            dps = total = yld = None
+            for r in res.get("list") or []:
+                se = str(r.get("se") or "").replace(" ", "")
+                common = str(r.get("stock_knd") or "") == "보통주"
+                v = krxdata.num(r.get(col))
+                if se.startswith("주당현금배당금") and common:
+                    dps = v
+                elif se.startswith("현금배당금총액"):
+                    total = v * 1e6 if v is not None else None
+                elif se.startswith("현금배당수익률") and common:
+                    yld = v / 100.0 if v is not None else None
+            got[col] = {"dps": dps or 0.0, "total": total or 0.0, "yield": yld}
     elif st != "013":
         raise FinError("DART 배당 응답 %s: %s" % (st, res.get("message") or ""))
     if got is not None or year < now_kst.year - 1:
         _write(path, {"data": got})
     return got
+
+
+def dividends(corp, year, key, cache=CACHE, now_kst=None, transport=None):
+    """그 해 보통주 주당 현금배당금(원)과 현금배당금총액(원). 없으면 None."""
+    t = dividend_table(corp, year, key, cache, now_kst, transport)
+    return {"dps": t["thstrm"]["dps"], "total": t["thstrm"]["total"]} if t else None
+
+
+# ---------------------------------------------------------------- 기업개황, 사업보고서 접수 기록
+
+def company(corp, key, cache=CACHE, transport=None):
+    """기업개황 {"name", "induty_code", "acc_mt"}. 한 번 받으면 캐시를 쓴다 (업종 코드와 결산월은 받은 날의 값)."""
+    path = os.path.join(cache, "company", "%s.json" % corp)
+    doc = _read(path)
+    if doc is not None:
+        return doc
+    res = _json(_get("company.json", {"corp_code": corp}, key, transport))
+    if str(res.get("status")) != "000":
+        raise FinError("DART 기업개황 응답 %s: %s" % (res.get("status"), res.get("message") or ""))
+    doc = {"name": res.get("corp_name") or "", "induty_code": str(res.get("induty_code") or ""),
+           "acc_mt": str(res.get("acc_mt") or "")}
+    _write(path, doc)
+    return doc
+
+
+def annual_filings(corp, key, cache=CACHE, now_kst=None, transport=None, need=None, sleep=time.sleep):
+    """사업보고서 접수 기록 {"YYYY.MM": {"first": 정정 전 첫 접수일, "first_no": 그 접수번호, "n": 정정 포함 건수}}.
+    FIRST_YEAR 이후 접수분. 캐시를 need (날짜, 기본 오늘) 이후에 받았으면 그것을 쓴다."""
+    now_kst = now_kst or krx.kst_now()
+    path = os.path.join(cache, "filings", "%s.json" % corp)
+    doc = _read(path)
+    if doc is not None and doc.get("fetched", "") >= (need or now_kst.date()).isoformat():
+        return doc["periods"]
+    rows, page, total = [], 1, 1
+    while page <= total:
+        res = _json(_get("list.json", {"corp_code": corp, "bgn_de": "%d0101" % FIRST_YEAR,
+                                       "end_de": now_kst.strftime("%Y%m%d"), "pblntf_detail_ty": "A001",
+                                       "page_no": page, "page_count": 100}, key, transport))
+        st = str(res.get("status"))
+        if st == "013":
+            break
+        if st != "000":
+            raise FinError("DART 공시 목록 응답 %s: %s" % (st, res.get("message") or ""))
+        rows.extend(res.get("list") or [])
+        total = int(res.get("total_page") or 1)
+        page += 1
+        if page <= total and sleep:
+            sleep(0.1)
+    periods = {}
+    for r in rows:
+        mt = PERIOD_RE.search(str(r.get("report_nm") or ""))
+        if not mt:
+            continue
+        d, no = str(r.get("rcept_dt") or ""), str(r.get("rcept_no") or "")
+        x = periods.setdefault("%s.%s" % mt.groups(), {"first": d, "first_no": no, "n": 0})
+        if (d, no) < (x["first"], x["first_no"]):
+            x["first"], x["first_no"] = d, no
+        x["n"] += 1
+    _write(path, {"fetched": now_kst.date().isoformat(), "periods": periods})
+    return periods
 
 
 def year_row(doc, col="thstrm_amount"):
@@ -256,6 +333,57 @@ def history(symbol, years=10, key=None, cache=CACHE, now_kst=None, transport=Non
         out.append(row)
     out.sort(key=lambda r: r["year"])
     return dict(info, symbol=sym), out
+
+
+def slim(doc):
+    """statements() 결과를 세 열(당기·전기·전전기)의 year_row 만 남긴 작은 꼴로 (여러 해를 메모리에 둘 때)."""
+    if not doc:
+        return doc
+    return {"fs_div": doc["fs_div"], "rcept_no": doc.get("rcept_no"),
+            "rows": {c: year_row(doc, c) for c in ("thstrm_amount", "frmtrm_amount", "bfefrmtrm_amount")}}
+
+
+def filed_on(filings, year, doc, month="12"):
+    """FY year 사업보고서를 처음 알 수 있던 날 (YYYYMMDD). 접수 기록의 정정 전 첫 접수일, 없으면 재무제표 접수번호 앞
+    8자리 (정정본이면 늦은 날이라 보수적이다)."""
+    x = (filings or {}).get("%d.%s" % (year, month))
+    if x and x.get("first"):
+        return x["first"]
+    return str((doc or {}).get("rcept_no") or "")[:8] or None
+
+
+def pit_rows(docs, divs, filings, day, years=10):
+    """day 에 알 수 있던 사업보고서만으로 해마다의 숫자 (history 와 같은 꼴, 12월 결산). docs·divs 는 {사업연도:
+    statements()·dividend_table() 결과 또는 None. statements 대신 slim() 결과도 된다}. 해마다 그 해 보고서의 당기 값, 그 보고서를 못 쓰면 다음 해 보고서의
+    전기 값, 그것도 없으면 그다음 해 보고서의 전전기 값. 최근 years 개.
+    row["revised_after"]: 그 숫자를 준 재무제표의 접수번호가 day 뒤다 (정정된 값일 수 있음)."""
+    cut = day.strftime("%Y%m%d")
+    ok = {}
+    for y, doc in (docs or {}).items():
+        if doc:
+            f = filed_on(filings, y, doc)
+            if f and f <= cut:
+                ok[y] = (doc, f)
+    out = []
+    if not ok:
+        return out
+    for y in range(min(ok) - 2, max(ok) + 1):
+        for src, col, dcol in ((y, "thstrm_amount", "thstrm"), (y + 1, "frmtrm_amount", "frmtrm"),
+                               (y + 2, "bfefrmtrm_amount", "lwfr")):
+            if src not in ok:
+                continue
+            doc, f = ok[src]
+            row = dict(doc["rows"][col]) if "rows" in doc else year_row(doc, col)
+            if row["assets"] is None and row["revenue"] is None and row["ni"] is None:
+                continue                      # 그 열이 빈 보고서 (전전기가 없는 표 등)
+            div = (divs or {}).get(src)
+            dv = (div or {}).get(dcol) or {}
+            row.update({"year": y, "fs_div": doc["fs_div"], "filed": f, "src": src,
+                        "revised_after": str(doc.get("rcept_no") or "")[:8] > cut,
+                        "dps": dv.get("dps") if div else None, "div_total": dv.get("total") if div else None})
+            out.append(row)
+            break
+    return out[-years:]
 
 
 # ---------------------------------------------------------------- 시가총액 (KRX)

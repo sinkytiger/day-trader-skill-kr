@@ -46,6 +46,7 @@ UNIVERSE = 300
 WINDOW = 252                                 # 저변동성, 52주 고가의 거래일 창
 MIN_RETS = 200
 NW_LAG = 3
+YEAR_MONTH = 4                               # 연 1회 리밸런싱의 신호 달 (4월 말. 사업보고서 제출 기한 3월 31일 한 달 뒤)
 COST = {"commission": 0.00015, "tax": 0.002, "slip": 0.001}
 MAX_CALLS = 9000                             # 한 번에 부르는 상한 (키당 하루 10,000건)
 EMPTY_RUN_STOP = 7                           # 평일이 이만큼 이어서 비면 (한도 등) 멈춘다
@@ -365,6 +366,8 @@ FAM_NAMES = {"ew": "동일가중", "mom": "모멘텀12-1", "lowvol": "저변동�
 
 
 def name(v):
+    if "label" in v:                         # 다른 스크립트(value.py)의 규칙은 이름을 들고 온다
+        return v["label"]
     f = v["fam"]
     if f == "cap":
         return "B1 시가총액가중 %d" % UNIVERSE
@@ -457,14 +460,18 @@ def targets(P, i, v, mkt_idx=None):
 def rebalances(v, i, P, first):
     if i == first or v["reb"] == "M":
         return True
+    if v["reb"] == "Y":
+        return P.months[i][1].month == YEAR_MONTH
     return P.months[i][1].month in (3, 6, 9, 12)
 
 
 # ---------------------------------------------------------------- 시험
 
-def backtest(P, v, start, end, delist="A", cost=COST, cost_x=1.0):
+def backtest(P, v, start, end, delist="A", cost=COST, cost_x=1.0, targets_fn=None, income=None):
     """수익률 월 start ~ end (YYYY-MM). [{"m", "r", "turnover", "gone"}] 비용 뒤 월 수익률.
-    신호 월 i 의 E 에 리밸런싱하고 다음 달 E 까지 보유. 그 수익률은 다음 달 이름으로 적는다."""
+    신호 월 i 의 E 에 리밸런싱하고 다음 달 E 까지 보유. 그 수익률은 다음 달 이름으로 적는다.
+    targets_fn(P, i, v) 를 주면 그 목표 비중을 쓴다. income(s, a, b) 를 주면 a ~ b 사이에 받은 배당을 그 종목에 다시
+    넣은 배수를 곱한다 (value.py). 둘 다 없으면 r2 와 같다."""
     ms = [m for m, _, _ in P.months]
     if start not in ms or end not in ms:
         raise InvestError("자료에 %s ~ %s 가 없습니다 (있는 달: %s ~ %s)" % (start, end, ms[0] if ms else "-",
@@ -481,7 +488,7 @@ def backtest(P, v, start, end, delist="A", cost=COST, cost_x=1.0):
         total = cash + sum(hold.values())
         turnover = 0.0
         if rebalances(v, i, P, first):
-            tg = targets(P, i, v, mkt_idx)
+            tg = targets_fn(P, i, v) if targets_fn else targets(P, i, v, mkt_idx)
             if tg is None:
                 raise InvestError("%s 신호를 만들 자료가 모자랍니다 (%s)" % (P.months[i][0], name(v)))
             cur = {s: h / total for s, h in hold.items()} if total > 0 else {}
@@ -495,6 +502,8 @@ def backtest(P, v, start, end, delist="A", cost=COST, cost_x=1.0):
         gone = 0
         for s in list(hold):
             g = P.growth(s, E, b, delist)
+            if income and g:
+                g *= income(s, E, b)
             if E <= P.final[s][0] < b:         # 이 보유 기간에 사라짐 (상장폐지·합병)
                 gone += 1
             hold[s] *= g

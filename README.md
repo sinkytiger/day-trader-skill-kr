@@ -33,7 +33,7 @@
 | `/trader-kr-broker` | 주문 실행 | 한국투자증권 모의투자로만, 위험 점검 PASS, 채팅의 "네", 도구 승인 카드를 모두 지난 주문을 낸다. 체결되면 목표가 지정가를 걸고, watch 가 손절가와 청산 시각을 지킨다 |
 | `/trader-kr-journal` | 거래 일지 | 실제 진입·청산을 적고 늦은 진입, 손절 어김, 청산 시각 어김, 낸 비용을 숫자로 보여 준다. 토스증권에서 산 것은 계좌의 체결 내역을 읽어 적고, 보유 주식이 손절가에서 얼마나 떨어져 있는지 보여 준다 (읽기만) |
 | `/trader-kr-lab` | 전략 검증 실험실 | 48가지 규칙을 앞 120 거래일에서 고르고 뒤 20 거래일에서 확인한다. 우연을 홀름 보정으로 걸러 낸다. 규칙 하나를 잠그고 그 뒤 거래일에만 적용하는 미래 검증도 한다 |
-| `/trader-kr-invest` | 장기 투자 실험실 | 모멘텀, 저변동성, 소형, 52주 고가, 추세 타이밍 등 월 리밸런싱 전략 16가지를 2010년부터의 KRX 일별매매정보(상장폐지 종목 포함)로 시험해, 시가총액 상위 300 을 시가총액 비중대로 들고 가는 기준과 비용 뒤 초과수익으로 비교한다. 지금 살 종목은 내지 않는다 |
+| `/trader-kr-invest` | 장기 투자 실험실 | 모멘텀, 저변동성, 소형, 52주 고가, 추세 타이밍 등 월 리밸런싱 전략 16가지를 2010년부터의 KRX 일별매매정보(상장폐지 종목 포함)로 시험해, 시가총액 상위 300 을 시가총액 비중대로 들고 가는 기준과 비용 뒤 초과수익으로 비교한다. `value.py` 는 저PBR, 저PER, 고배당, 대가 점검표 등 가치 규칙 8가지를 그때 접수된 DART 사업보고서와 배당을 넣은 수익률로, 해마다 4월 말에 바꿔 시험한다. 지금 살 종목은 내지 않는다 |
 | `/trader-kr-masters` | 투자 대가 점검표 | 한 회사의 DART 사업보고서 숫자(2015년~)와 KRX 시가총액으로 그레이엄 8개, 버핏 7개, 린치 6개 기준을 재고 기준마다 숫자와 충족 여부를 보여 준다. 산 이유(논지)를 근거·위험·촉매로 적어 두고 새 사업보고서와 공시로 다시 보는 논지 추적도 한다. 매수·매도 신호는 내지 않는다 |
 
 ## 분석 에이전트
@@ -58,6 +58,7 @@ journal: sync / open / close / holdings / report              (산 뒤, 판 뒤,
 lab: run                                                       (규칙을 바꾸기 전에)
 lab: forward lock -> forward update                            (규칙 하나를 잠그고, 매주 그 뒤 거래일만 다시 잼)
 invest: data -> run / dca                                      (장기 전략을 시장 기준과 비교, KRX 키)
+invest value.py: data -> check -> run                          (가치 규칙, 연 1회, 배당 포함. DART 키 + KRX 키)
 masters: check --symbol                                        (한 회사를 대가들의 기준으로, DART 키 + KRX 키)
 masters: thesis new -> add -> check                            (논지를 적고, 분기마다 숫자·공시로 다시 봄)
 broker: show -> approve -> place -> watch                      (모의투자, 주문마다 "네" 와 승인 카드)
@@ -171,6 +172,8 @@ KRX 응답이 한 번에 몇 초씩 걸려서 날짜 여섯 개씩 동시에 받
 장기 투자 실험실(`/trader-kr-invest`)은 이 키로 2010-01-04 부터의 일별매매정보를 받는다. 평일 약 4,400일, 두 시장이라
 약 8,800건으로 하루 한도 안이고, 날짜 여섯 개씩 동시에 받아 20분쯤 걸린다 (2026-11-01 실측). 보통주만 줄여 날짜마다
 압축해 두면 200MB 쯤이다. 그날 상장된 전 종목이 오므로 그 뒤 상장폐지·합병된 종목도 들어 있다.
+가치 규칙(`value.py data`)은 그 위에 4월 말 종목군에 든 회사 약 600곳의 DART 기업개황, 사업보고서 접수 기록,
+재무제표, 배당을 받는다 (약 1만 ~ 1만 5천 건, OpenDART 는 하루 2만 건쯤에서 요청 제한).
 
 ## 미국판에서 바꾼 것
 
@@ -288,7 +291,8 @@ trader-kr-budget/       SKILL.md, size.py, config.example.json
 trader-kr-risk/         SKILL.md, check.py
 trader-kr-journal/      SKILL.md, journal.py
 trader-kr-lab/          SKILL.md, lab.py
-trader-kr-invest/       SKILL.md, invest.py (장기 전략 대 시장 기준, KRX 일별매매정보 2010년~)
+trader-kr-invest/       SKILL.md, invest.py (장기 전략 대 시장 기준, KRX 일별매매정보 2010년~),
+                        value.py (가치 규칙 8가지, 그때 접수된 DART 사업보고서, 배당 포함, 연 1회)
 trader-kr-masters/      SKILL.md, masters.py (그레이엄·버핏·린치 점검표, 논지 추적. DART 재무제표 + KRX 시가총액)
 agents/                 trader-kr-analyst.md (회사 한 장 분석 에이전트: 점검표 -> 논지 점검 -> 물으면 장기 전략)
 trader-kr-today/        SKILL.md, today.py (다른 스킬을 시각에 맞춰 이어서 부름)
