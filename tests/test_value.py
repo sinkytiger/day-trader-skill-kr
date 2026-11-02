@@ -332,6 +332,69 @@ class World(unittest.TestCase):
         self.assertEqual(turned[0], "2016-05")
         self.assertTrue(set(turned) <= {"2016-05", "2017-05", "2018-05"})
 
+    def test_r4_features_and_cap_weights_without_low_fscores(self):
+        i = self.month("2016-04")
+        F, _ = self.S.features(i)
+        for x in F.values():
+            self.assertIn("fscore", x)
+            self.assertIsNone(x["gpa"])                              # 합성 재무제표에는 매출총이익이 없다
+        self.assertIsNotNone(F["100000"]["fscore"])                  # FY2015 보고서의 세 열로 세 해
+        w = self.S.targets()(self.P, i, vm.BV_F)
+        bv = inv.targets(self.P, i, {"fam": "cap", "reb": "Y"})
+        self.assertEqual(w, vm.drop_low_f(bv, F, vm.MAX_F))
+        self.assertAlmostEqual(sum(w.values()), 1.0)
+        self.assertIn("300000", w)                                   # 은행은 V 밖이라 그대로 둔다
+
+    def test_forward_lock_scores_only_finished_months_after_the_lock(self):
+        old = vm.MIN_V
+        vm.MIN_V = 1                                                 # 합성 세계의 V 는 작다 (잠글 때와 채점할 때 같게)
+        tmp = tempfile.mkdtemp()
+        try:
+            judged = ["저PBR 30종목 연1회", vm.BV_F["label"]]
+            now = datetime.datetime(2017, 5, 1, 10, 0)              # 5월 첫 평일, 장 마감 전
+            doc, path = vm.forward_lock(judged, now, "t1", tmp, judge_months=12)
+            self.assertEqual((doc["first_month"], len(doc["rules"]), doc["judged"]), ("2017-05", 13, judged))
+            with self.assertRaises(vm.ValueLabError):
+                vm.forward_lock(judged, now, "t1", tmp, judge_months=12)              # 덮어쓰지 않음
+            for bad in (["없는 규칙"], [], judged * 2, [v["label"] for v in vm.tracked()][:7]):
+                with self.assertRaises(vm.ValueLabError):
+                    vm.forward_lock(bad, now, "t2", tmp)
+            with self.assertRaises(vm.ValueLabError):
+                vm.forward_lock(judged, now, "t2", tmp, judge_months=6)
+            res = vm.forward_update(vm.read_lock(path), self.P, self.S)
+            # 자료는 2018-06-29 에 끝난다: 6월은 다음 달 첫 거래일이 없어 아직 안 끝난 달
+            self.assertEqual((res["months"][0], res["months"][-1], len(res["months"])), ("2017-05", "2018-05", 13))
+            self.assertEqual([r["rule"] for r in res["rules"]][:2], judged)
+            st = vm.run_one(self.P, self.S, vm.find_rule(judged[0]), "2017-05", "2018-05", "A", inv.COST)
+            b = dict(st["bench_monthly"])
+            self.assertEqual(res["rules"][0]["excess"], [r - b[m] for m, r in st["monthly"]])
+            self.assertEqual(res["verdict"]["state"], "done")                         # 13 >= 12: 첫 12달로 판정
+            self.assertIn("p_holm", res["rules"][0]["judge"])
+            self.assertNotIn("judge", res["rules"][2])                               # 참고 규칙은 판정하지 않음
+            text = "\n".join(vm.forward_report(res))
+            for s in WORLD:
+                self.assertNotIn(s, text)                                            # 종목 목록은 내지 않는다
+            late, _ = vm.forward_lock(judged, datetime.datetime(2017, 5, 1, 16, 0), "t3", tmp)
+            self.assertEqual(late["first_month"], "2017-06")                         # 장 마감 뒤면 다음 달부터
+            self.assertEqual(vm.forward_update(vm.read_lock(vm.forward_paths(tmp, "t3")[0]), self.P, self.S)
+                             ["verdict"]["state"], "before")                         # 12 / 36달
+            with open(path, encoding="utf-8") as fh:
+                d = json.load(fh)
+            d["judge_months"] = 6
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(d, fh)
+            with self.assertRaises(vm.ValueLabError):
+                vm.read_lock(path)                                                   # 잠근 파일을 고침
+            vm.MAX_F = 3
+            try:
+                with self.assertRaises(vm.ValueLabError):
+                    vm.read_lock(vm.forward_paths(tmp, "t3")[0])                     # 계산 상수가 바뀜
+            finally:
+                vm.MAX_F = 2
+        finally:
+            vm.MIN_V = old
+            shutil.rmtree(tmp)
+
     def test_too_small_value_universe_stops_the_run(self):
         with self.assertRaises(vm.ValueLabError):
             vm.run_one(self.P, self.S, vm.find_rule("저PBR 30종목 연1회"), "2016-05", "2018-05")
@@ -496,6 +559,67 @@ class Picks(unittest.TestCase):
             src = fh.read()
         for bad in ("trader-kr-broker", "order-cash", "/api/v1/orders"):
             self.assertNotIn(bad, src)
+
+
+class R4(unittest.TestCase):
+    def rows(self):
+        return [{"year": 2013, "assets": 100.0, "revenue": 80.0},
+                {"year": 2014, "assets": 110.0, "ni": 5.0, "ocf": 8.0, "revenue": 90.0, "gross_profit": 27.0, "op": 9.0,
+                 "current_assets": 50.0, "current_liabilities": 40.0, "noncurrent_liabilities": 30.0},
+                {"year": 2015, "assets": 120.0, "ni": 9.0, "ocf": 12.0, "revenue": 110.0, "gross_profit": 36.0, "op": 12.0,
+                 "current_assets": 60.0, "current_liabilities": 40.0, "noncurrent_liabilities": 30.0}]
+
+    def test_fscore_eight_signals(self):
+        rows = self.rows()
+        # ROA 9/110 > 0, CFO > 0, ROA 0.082 > 5/100, CFO/기초자산 12/110 > ROA, 비유동부채/자산 0.25 < 0.273,
+        # 유동비율 1.5 > 1.25, 매출총이익률 0.327 > 0.3, 매출/기초자산 1.0 > 0.9
+        self.assertEqual(vm.fscore(rows), 8)
+        rows[2]["ocf"] = -1.0
+        self.assertEqual(vm.fscore(rows), 6)                       # 2, 4 를 잃음
+        rows = self.rows()
+        del rows[1]["gross_profit"]
+        self.assertEqual(vm.fscore(rows), 8)                       # 매출총이익이 한 해 없으면 영업이익률 12/110 > 9/90
+        rows[2]["op"] = 10.0
+        self.assertEqual(vm.fscore(rows), 7)                       # 영업이익률 0.091 < 0.1
+        rows = self.rows()
+        del rows[2]["noncurrent_liabilities"]
+        self.assertEqual(vm.fscore(rows), 7)                       # 숫자가 없는 신호는 0
+        rows = self.rows()
+        rows[0]["year"] = 2012
+        self.assertIsNone(vm.fscore(rows))                         # 세 해가 이어져 있지 않음
+        self.assertIsNone(vm.fscore(rows[1:]))
+        self.assertAlmostEqual(vm.gpa(self.rows()), 36.0 / 120.0)
+        self.assertIsNone(vm.gpa([{"year": 2015, "assets": 10.0}]))
+
+    def test_r4_picks(self):
+        F = {s: {"pbr": p, "fscore": f, "gpa": g} for s, p, f, g in (
+            ("A", 0.5, 3, 0.10), ("B", 0.6, 7, 0.30), ("C", 0.7, 8, None), ("D", 1.0, 8, 0.40), ("E", 2.0, 8, 0.20),
+            ("G", None, 8, 0.50))}
+        top = lambda fam, n: list(vm.pick(F, {"fam": fam, "n": n}))    # noqa: E731
+        # PBR 이 있는 5개의 앞 3분의1 (올림) = A, B. 그 안에서 F-score 높은 순. C 는 F 8 이어도 3분의1 밖
+        self.assertEqual(top("f_pbr", 5), ["B", "A"])
+        F["B"]["fscore"] = None
+        self.assertEqual(top("f_pbr", 5), ["A"])                       # F-score 없으면 빠짐
+        self.assertEqual(top("gpa", 9), ["G", "D", "B", "E", "A"])     # 매출총이익 없는 C 는 빠짐
+        # PBR 순위 A1 B2 D3 E4, 매출총이익/자산 순위 D1 B2 E3 A4 (C, G 는 하나가 없음)
+        self.assertEqual(top("gpa_pbr", 4), ["B", "D", "A", "E"])
+
+    def test_cap_weights_without_low_fscores(self):
+        F = {"A": {"fscore": 2}, "B": {"fscore": 5}, "C": {"fscore": None}}
+        w = vm.drop_low_f({"A": 0.5, "B": 0.3, "C": 0.1, "X": 0.1}, F, 2)
+        self.assertEqual(sorted(w), ["B", "C", "X"])                  # V 밖(X)과 F-score 없는 종목(C)은 둔다
+        self.assertAlmostEqual(sum(w.values()), 1.0)
+        self.assertAlmostEqual(w["B"], 0.6)
+
+    def test_four_r4_rules(self):
+        R = vm.rules_r4()
+        self.assertEqual([v["fam"] for v in R], ["f_pbr", "gpa", "gpa_pbr", "bv_f"])
+        self.assertEqual(R[3]["max_f"], 2)
+        names = [v["label"] for v in vm.rules() + R] + [vm.BENCH["label"], vm.EWV["label"]]
+        self.assertEqual(len(set(names)), 14)
+        for v in R:
+            self.assertEqual(vm.find_rule(v["label"]), v)
+        self.assertEqual(len(vm.rules()), 8)                         # r3 의 8개는 그대로
 
 
 class EngineHooks(unittest.TestCase):

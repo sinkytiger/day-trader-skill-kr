@@ -41,6 +41,7 @@ PERIOD_RE = re.compile(r"\((\d{4})\.(\d{2})\)")   # "사업보고서 (2019.12)" 
 # 표준 계정 (접두어 ifrs-full_, ifrs_, dart_ 를 뗀 이름) -> 항목. 앞에 있는 표가 먼저
 ITEMS = {
     "revenue": (("IS", "CIS"), ("Revenue",), ("매출액", "영업수익", "수익(매출액)", "매출")),
+    "gross_profit": (("IS", "CIS"), ("GrossProfit",), ("매출총이익", "매출총이익(손실)")),
     "op": (("IS", "CIS"), ("OperatingIncomeLoss",), ("영업이익", "영업이익(손실)")),
     "ni_parent": (("IS", "CIS"), ("ProfitLossAttributableToOwnersOfParent",), ()),
     "ni": (("IS", "CIS"), ("ProfitLoss",), ("당기순이익", "당기순이익(손실)")),

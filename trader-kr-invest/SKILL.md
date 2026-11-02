@@ -7,11 +7,13 @@ description: >-
   들어 있어 생존 편향이 없고, 상장폐지를 마지막 가격으로 치는 판과 -100% 로 치는 판을 둘 다 낸다. Newey-West
   표준오차와 한쪽 p, 연복리, 변동성, 최대 낙폭, 적립식과 한 번에 넣기 비교를 낸다. value.py 는 가치 규칙 8가지
   (저PBR, 저PER, 고배당, 저PBR+고ROE, 저PBR+모멘텀, 그레이엄·버핏·린치 점검표)를 DART 사업보고서(그때 접수된 것만)와
-  배당을 넣은 수익률로, 해마다 4월 말에 바꿔 시험한다. 지금 살 종목은 내지 않는다.
+  배당을 넣은 수익률로, 해마다 4월 말에 바꿔 시험한다. r4 규칙 4개는 F-score(피오트로스키)와 매출총이익/자산
+  (노비-마크스)을 쓴다. forward 는 규칙을 지금 잠그고 앞으로의 달만 채점하는 전진 시험이다. 지금 살 종목은 내지 않는다.
   사용자가 "장기 투자 검증", "모멘텀 전략 돼?", "저변동성", "적립식이 나아?", "인덱스보다 나은 전략",
   "리밸런싱", "저PBR 전략", "가치주 백테스트", "배당주 전략", "대가 점검표로 고르면", "factor backtest",
-  "value backtest", "long-term strategy" 라고 하면 쓴다. 주문을 내지 않는다.
-argument-hint: "data [--from 2010-01-04] | rules | run --rule \"모멘텀12-1 30종목 매달\" [--from 2011-02 --to 2023-10] [--delist B] [--cost-x 2] | dca | value.py data | check | run --rule \"저PBR 30종목 연1회\""
+  "value backtest", "long-term strategy", "F-score", "피오트로스키", "매출총이익", "전진 시험", "forward test" 라고
+  하면 쓴다. 주문을 내지 않는다.
+argument-hint: "data [--from 2010-01-04] | rules | run --rule \"모멘텀12-1 30종목 매달\" [--from 2011-02 --to 2023-10] [--delist B] [--cost-x 2] | dca | value.py data | check | run --rule \"저PBR 30종목 연1회\" | value.py forward lock|update --name value-2026-11"
 ---
 
 # trader-kr-invest
@@ -32,8 +34,9 @@ python "${CLAUDE_SKILL_DIR}/invest.py" run --rule "저변동성 50종목 분기"
 python "${CLAUDE_SKILL_DIR}/invest.py" dca --months 36           # B1 을 한 번에 넣기 대 매달 나눠 넣기
 python "${CLAUDE_SKILL_DIR}/value.py" data                       # 가치 규칙용 DART 재무·배당·접수일 (DART 키 + KRX 키)
 python "${CLAUDE_SKILL_DIR}/value.py" check                      # 받은 범위와 자료 점검 (걸리면 멈춤)
-python "${CLAUDE_SKILL_DIR}/value.py" rules                      # 가치 규칙 이름 10개 (BV, EWV + 8)
+python "${CLAUDE_SKILL_DIR}/value.py" rules                      # 가치 규칙 이름 14개 (BV, EWV, r3 8, r4 4)
 python "${CLAUDE_SKILL_DIR}/value.py" run --rule "저PBR 30종목 연1회" --delist B --cost-x 2 --json
+python "${CLAUDE_SKILL_DIR}/value.py" forward update --name value-2026-11   # 잠근 뒤 끝난 달만 채점 (아래 전진 시험)
 ```
 
 ## 읽고 쓰는 것
@@ -121,7 +124,48 @@ V 150개 아래, 빈 회사-연도 3% 넘음, 배당수익률 차이 중앙값 0
 규칙의 생각은 널리 알려진 연구에서 왔다 (코드나 글은 옮기지 않음): 저PER 은 Basu (1977, Journal of Finance), 장부가
 대비 시가는 Fama and French (1992, Journal of Finance), 가치와 모멘텀을 함께 보는 것은 Asness, Moskowitz and Pedersen
 (2013, "Value and Momentum Everywhere", Journal of Finance). 점검표는 그레이엄 『현명한 투자자』, 버핏 주주서한, 린치
-『전설로 떠나는 월가의 영웅』을 한국 자료에 맞춘 trader-kr-masters 의 기준이다.
+『전설로 떠나는 월가의 영웅』을 한국 자료에 맞춘 trader-kr-masters 의 기준이다. r4 의 F-score 는 Piotroski (2000,
+Journal of Accounting Research), 매출총이익/자산은 Novy-Marx (2013, Journal of Financial Economics) 에서 왔다.
+
+## 가치 규칙 r4 4개 (value.py)
+
+같은 V(T), 시점, 배당, 비용으로 수익성·재무 건전성 신호를 본다.
+
+F-score 는 피오트로스키 (2000) 의 9개 가운데 유상증자 신호를 뺀 8개다 (한국 상장주식수에는 무상증자·액면분할이 섞여
+현금 증자를 가려내지 못한다). t = FY(T-1): ROA_t > 0, 영업현금흐름 > 0, ROA 가 전년보다 높음, 영업현금흐름 / 기초자산 >
+ROA, 비유동부채 / 자산이 전년보다 낮음, 유동비율이 전년보다 높음, 매출총이익률이 전년보다 높음 (두 해 중 매출총이익이
+없으면 영업이익률), 매출 / 기초자산이 전년보다 높음. ROA = 당기순이익 / 기초자산. 숫자가 없는 신호는 0, 마지막 세 해가
+이어져 있지 않으면 F-score 없음.
+
+| 이름 | 고르는 법 |
+| --- | --- |
+| 저PBR 3분의1 중 F-score 상위 30종목 연1회 | V 의 PBR 낮은 3분의1 (올림) 안에서 F-score 높은 순, 같으면 PBR 낮은 순. 같은 비중 |
+| 매출총이익/자산 상위 30종목 연1회 | 매출총이익 / 자산총계 높은 순 (노비-마크스 2013). 같은 비중 |
+| 매출총이익/자산+저PBR 30종목 연1회 | 매출총이익/자산 순위 + PBR 낮은 순 순위의 합. 같은 비중 |
+| 시가총액가중 F-score 2 이하 제외 연1회 | BV 의 시가총액 비중에서 V 의 F-score 2 이하 종목을 빼고 다시 1 로 맞춤. V 밖(금융 등)과 F-score 없는 종목은 둔다 |
+
+## 전진 시험 (value.py forward)
+
+과거 시험은 그 기간의 시장을 사람이 이미 안다. 깨끗한 확인은 규칙을 지금 잠그고 앞으로의 달만 채점하는 것뿐이다.
+
+```bash
+python "${CLAUDE_SKILL_DIR}/value.py" forward lock --name value-2026-11 --judge "규칙 이름" --judge "..." [--judge-months 36]
+python "${CLAUDE_SKILL_DIR}/value.py" forward update --name value-2026-11    # 매달 초, invest.py data 뒤
+```
+
+- **잠금.** r3 8개, r4 4개, EWV 를 모두 잠그고, 그 가운데 판정 대상 1 ~ 6개와 판정에 쓸 첫 달 수(기본 36)를 정한다.
+  `trader-kr/forward/value/<이름>.lock.json` 에 쓰고 덮어쓰지 않는다. 잠근 때가 그달 첫 평일 장 마감(15:30) 전이면 그달,
+  아니면 다음 달부터 채점한다 (그달 수익률은 그달 첫 거래일 종가부터 센다).
+- **채점.** 다음 달 첫 거래일까지 자료가 있는 (끝난) 달만 센다. 규칙마다 누적 수익률, BV 누적, 월 초과수익 평균을 낸다.
+  종목 목록은 내지 않는다.
+- **판정은 한 번.** 첫 N달이 차기 전에는 "판정 전 (n / N달)" 만 말한다. 차면 첫 N달로 판정 대상에 홀름 보정을 하고,
+  보정 p < 0.05 이고 상장폐지 A·B 판 평균 초과수익이 모두 플러스면 통과. 그 뒤 달은 참고만.
+- **멈춤.** 잠근 파일, 규칙 정의, 계산 코드 (종목군, 그때 알던 숫자, 점검표 기준, 고르기, 백테스트, 재무 항목) 가 잠근 뒤
+  바뀌면 update 가 멈춘다. 고쳐야 하면 새 이름으로 다시 잠근다.
+- **자료.** 매달 초 `invest.py data` 로 KRX 를 받고, 해마다 5월 초 `value.py data` 로 새 사업보고서를 받는다.
+
+말할 때: "판정 전" 이면 그 말과 채점한 달 수만 전한다. 몇 달의 숫자로 규칙이 된다·안 된다를 말하지 않는다. 판정
+대상을 몇 개로 했는지와, 36달로는 아주 큰 차이만 잡힌다는 점을 같이 말한다.
 
 ## 결과 읽는 법
 
