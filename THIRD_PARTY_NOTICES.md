@@ -43,6 +43,11 @@
   "The Cross-Section of Expected Stock Returns", Journal of Finance. 가치와 모멘텀을 함께 보는 것은 C. Asness,
   T. Moskowitz and L. Pedersen (2013), "Value and Momentum Everywhere", Journal of Finance. 규칙의 꼴(30종목, 4월 말,
   순위 합)과 기준값은 이 저장소가 정했고, 논문의 글이나 코드는 옮기지 않았다.
+- 가격이 깔고 있는 가정 (`trader-kr-masters/implied.py`) 의 생각: 지금 가격에서 기대를 거꾸로 푸는 것은
+  A. Rappaport and M. Mauboussin (2001), 『Expectations Investing: Reading Stock Prices for Better Returns』, Harvard
+  Business School Press. 장부가와 초과이익으로 보는 잔여이익모형은 J. Ohlson (1995), "Earnings, Book Values, and
+  Dividends in Equity Valuation", Contemporary Accounting Research. 모델의 꼴(최근 3년 평균 출발, 10년 + 영구 성장,
+  배당성향으로 자본 성장)과 기본 할인율은 이 저장소가 정했고, 책이나 논문의 글은 옮기지 않았다.
 - 에이전트 형식: Claude Code 공식 문서 (https://code.claude.com/docs/en/plugins/manifest-reference.md,
   plugins/components.md, sub-agents.md). `agents/trader-kr-analyst.md` 의 위치, 머리말, `${CLAUDE_PLUGIN_ROOT}` 를
   따랐고 문서의 글은 옮기지 않았다.

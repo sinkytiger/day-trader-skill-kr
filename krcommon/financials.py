@@ -299,8 +299,8 @@ def year_row(doc, col="thstrm_amount"):
 
 
 def history(symbol, years=10, key=None, cache=CACHE, now_kst=None, transport=None, progress=None):
-    """최근 사업연도부터 years 년 (2015 이전은 없음). (회사 정보, [{year, fs_div, filed, ...항목, dps, div_total}]).
-    해마다 그 해 보고서의 당기 값, 그 해 보고서가 없으면 다음 해 보고서의 전기 값."""
+    """최근 사업연도부터 years 년 (2015 이전은 없음). (회사 정보, [{year, fs_div, filed, src, ...항목, dps, div_total}]).
+    해마다 그 해 보고서의 당기 값, 그 해 보고서가 없으면 다음 해 보고서의 전기 값. src 는 숫자를 준 보고서의 사업연도."""
     key = key or dart.api_key()
     if not key:
         raise FinError("DART_API_KEY 가 없습니다. 터미널에서 python krcommon/keys.py dart 로 넣으세요 (채팅에 붙여 넣지 마세요)")
@@ -322,13 +322,14 @@ def history(symbol, years=10, key=None, cache=CACHE, now_kst=None, transport=Non
     out = []
     for y in span:
         if docs.get(y):
-            row, src = year_row(docs[y]), docs[y]
+            row, sy = year_row(docs[y]), y
         elif docs.get(y + 1):
-            row, src = year_row(docs[y + 1], "frmtrm_amount"), docs[y + 1]
+            row, sy = year_row(docs[y + 1], "frmtrm_amount"), y + 1
         else:
             continue
+        src = docs[sy]
         div = dividends(corp, y, key, cache, now_kst, transport)
-        row.update({"year": y, "fs_div": src["fs_div"], "filed": str(src.get("rcept_no") or "")[:8],
+        row.update({"year": y, "fs_div": src["fs_div"], "filed": str(src.get("rcept_no") or "")[:8], "src": sy,
                     "dps": (div or {}).get("dps"), "div_total": (div or {}).get("total")})
         out.append(row)
     out.sort(key=lambda r: r["year"])

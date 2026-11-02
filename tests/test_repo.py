@@ -133,7 +133,8 @@ class Repo(unittest.TestCase):
         self.assertIn("채팅에 붙여 넣지 않습니다", text)
         self.assertNotIn("CLAUDE_SKILL_DIR", text)                         # 에이전트 본문에서는 바뀌지 않는다
         paths = re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/([\w./-]+\.py)", text)
-        self.assertEqual(sorted(set(paths)), ["trader-kr-invest/invest.py", "trader-kr-masters/masters.py"])
+        self.assertEqual(sorted(set(paths)), ["trader-kr-invest/invest.py", "trader-kr-masters/implied.py",
+                                              "trader-kr-masters/masters.py"])
         for rel in paths:
             self.assertTrue(os.path.isfile(os.path.join(ROOT, rel)), rel)
         # 주문 스크립트는 부르지 않는다고만 적고, 실제로 부르는 명령은 없다
