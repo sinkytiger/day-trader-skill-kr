@@ -45,7 +45,10 @@
   순위 합)과 기준값은 이 저장소가 정했고, 논문의 글이나 코드는 옮기지 않았다. r4 의 F-score 는 J. Piotroski (2000),
   "Value Investing: The Use of Historical Financial Statement Information to Separate Winners from Losers", Journal of
   Accounting Research (9개 가운데 유상증자 신호를 뺀 8개로 바꿈). 매출총이익/자산은 R. Novy-Marx (2013), "The Other
-  Side of Value: The Gross Profitability Premium", Journal of Financial Economics.
+  Side of Value: The Gross Profitability Premium", Journal of Financial Economics. r5 의 발생액은 R. Sloan (1996), "Do Stock
+  Prices Fully Reflect Information in Accruals and Cash Flows about Future Earnings?", The Accounting Review 와 현금흐름표로
+  재는 법 P. Hribar and D. Collins (2002), "Errors in Estimating Accruals", Journal of Accounting Research. 순발행은
+  J. Pontiff and A. Woodgate (2008), "Share Issuance and Cross-sectional Returns", Journal of Finance.
 - 가격이 깔고 있는 가정 (`trader-kr-masters/implied.py`) 의 생각: 지금 가격에서 기대를 거꾸로 푸는 것은
   A. Rappaport and M. Mauboussin (2001), 『Expectations Investing: Reading Stock Prices for Better Returns』, Harvard
   Business School Press. 장부가와 초과이익으로 보는 잔여이익모형은 J. Ohlson (1995), "Earnings, Book Values, and

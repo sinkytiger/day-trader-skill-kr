@@ -23,7 +23,8 @@
 배당: FY y 보통주 주당 현금배당금을 y 년 12월 마지막 거래일 종가로 그 종목에 다시 넣는다 (기준일 근사).
 대가 점검표 기준은 trader-kr-masters/masters.py 의 graham, buffett, lynch 를 그대로 부른다.
 r4 규칙 4개: 피오트로스키 F-score (유상증자 신호를 뺀 8개), 노비-마크스 매출총이익/자산, 둘을 PBR 과 섞은 것,
-시가총액가중 기준에서 F-score 낮은 종목을 뺀 것.
+시가총액가중 기준에서 F-score 낮은 종목을 뺀 것. r5 규칙 5개: 시가총액가중에서 발생액·순발행이 큰 쪽 10%, 적자,
+넷을 합친 위험 신호를 뺀 것과, 상위 50 시가총액가중에서 넷을 뺀 것 (상위 50 시가총액가중과 견줌).
 과거 성적은 미래를 약속하지 않는다.
 """
 
@@ -34,6 +35,7 @@ import hashlib
 import importlib.util
 import inspect
 import json
+import math
 import os
 import re
 import sys
@@ -93,7 +95,7 @@ def rules_r4():
 
 
 def find_rule(text):
-    for v in rules() + rules_r4() + [BENCH, EWV]:
+    for v in rules() + rules_r4() + rules_r5() + [BENCH, EWV, T50]:
         if v["label"] == text.strip():
             return v
     raise ValueLabError("규칙 '%s' 이 없습니다. python value.py rules 로 이름을 보세요" % text)
@@ -614,6 +616,162 @@ def run_one(P, S, v, start, end, delist="A", cost=inv.COST, cost_x=1.0, dividend
     return st
 
 
+# ---------------------------------------------------------------- r5: 시가총액가중에서 위험 신호 빼기
+#
+# 잠근 전진 시험의 계산 지문(engine_print)을 지키려고 r5 는 새 함수로만 만든다. Store, pick, run_one 등은 그대로 쓰고
+# 고치지 않는다. r5 를 잠글 때의 지문은 engine_print_x (engine_print 에 아래 함수들을 더한 것).
+
+R5_TOP = 0.10                     # 발생액·순발행이 큰 쪽 10% (올림)
+R5_FLAGS = ("f", "accrual", "nsi", "loss")
+T50 = {"fam": "bv_x", "reb": "Y", "top": 50, "drop": [], "label": "상위 50 시가총액가중 연1회"}
+
+
+def rules_r5():
+    """r5 에 사전 등록한 5개 (순서 고정). 마지막 것은 T50 과 견준다 (vs)."""
+    one = (("accrual", "발생액 상위 10%"), ("nsi", "순발행 상위 10%"), ("loss", "적자"))
+    out = [{"fam": "bv_x", "reb": "Y", "top": None, "drop": [k], "label": "시가총액가중 %s 제외 연1회" % t} for k, t in one]
+    out.append({"fam": "bv_x", "reb": "Y", "top": None, "drop": list(R5_FLAGS), "label": "시가총액가중 위험 신호 넷 제외 연1회"})
+    out.append({"fam": "bv_x", "reb": "Y", "top": 50, "drop": list(R5_FLAGS), "vs": T50["label"],
+                "label": "상위 50 시가총액가중 위험 신호 넷 제외 연1회"})
+    return out
+
+
+def accrual(rows):
+    """슬론 (1996) 발생액의 현금흐름표 판 (Hribar and Collins 2002): (당기순이익 - 영업현금흐름) / 평균 자산총계, 마지막 해.
+    마지막 두 해가 이어져 있지 않거나 숫자가 없으면 None."""
+    if len(rows) < 2 or rows[-1]["year"] - rows[-2]["year"] != 1:
+        return None
+    b, c = rows[-2], rows[-1]
+    ni = c.get("ni") if c.get("ni") is not None else c.get("ni_parent")
+    a0, a1 = b.get("assets"), c.get("assets")
+    if ni is None or c.get("ocf") is None or not a0 or not a1:
+        return None
+    return (ni - c["ocf"]) / ((a0 + a1) / 2.0)
+
+
+def nsi(P, i, s):
+    """폰티프·우드게이트 (2008) 순발행: ln(보통주 시가총액 T / T-12) - ln(조정 주가 T / T-12). 무상증자·액면분할은 조정
+    주가에 들어 있어 빠지고, 유상증자·합병 신주·전환은 플러스, 자사주 소각은 마이너스. 숫자가 없으면 None."""
+    m, T, _ = P.months[i]
+    m12, T12, _ = P.months[i - 12]
+    a, b = P.snap.get(m12, {}).get(s), P.snap.get(m, {}).get(s)
+    pa, pb = P.price(s, T12), P.price(s, T)
+    if a is None or b is None or not a.cap or not b.cap or not pa or not pb:
+        return None
+    return math.log(b.cap / a.cap) - math.log(pb / pa)
+
+
+def top_share(vals, share):
+    """{종목: 값} 에서 값이 큰 쪽 share (올림) 만큼의 종목. 같으면 코드 순."""
+    order = sorted(vals, key=lambda s: (-vals[s], s))
+    return set(order[:int(math.ceil(len(order) * share - 1e-9))])
+
+
+class R5(object):
+    """r5 의 위험 신호. Store 의 캐시와 숫자를 그대로 쓰고, Store 는 고치지 않는다."""
+
+    def __init__(self, S):
+        self.S, self._flags = S, {}
+
+    def rows(self, s, T):
+        """V 종목의 그때 알던 해마다 숫자 (Store.features 와 같은 사업보고서, 같은 시점 규칙)."""
+        S = self.S
+        corp = S.corp(s)
+        lo = S.want.get(s, (fin.FIRST_YEAR, 0))[0]
+        docs = {y: S.statement(corp, y) for y in range(lo, T.year)}
+        return ms.derive(fin.pit_rows(docs, {}, S.filings(corp) or {}, T))
+
+    def flags(self, i):
+        """신호 월 i 의 {"f", "accrual", "nsi", "loss": 종목 집합, "values": 숫자, "n": 센 수}."""
+        if i in self._flags:
+            return self._flags[i]
+        S, P = self.S, self.S.P
+        T = P.months[i][1]
+        F, _ = S.features(i)
+        acc, loss = {}, set()
+        for s in F:
+            rows = self.rows(s, T)
+            a = accrual(rows)
+            if a is not None:
+                acc[s] = a
+            ni = rows[-1].get("ni_parent") if rows else None
+            if ni is not None and ni <= 0:
+                loss.add(s)
+        U = inv.universe(P, i) or []
+        ns = {}
+        for s, _ in U:
+            x = nsi(P, i, s)
+            if x is not None:
+                ns[s] = x
+        out = {"f": {s for s, x in F.items() if x["fscore"] is not None and x["fscore"] <= MAX_F},
+               "accrual": top_share(acc, R5_TOP), "nsi": top_share(ns, R5_TOP), "loss": loss,
+               "values": {"accrual": acc, "nsi": ns}, "n": {"V": len(F), "accrual": len(acc), "U": len(U), "nsi": len(ns)}}
+        self._flags[i] = out
+        return out
+
+    def targets(self, strict=False):
+        """invest.backtest 의 targets_fn. bv_x 가 아니면 Store.targets 그대로. strict 면 T 뒤에 정정된 회사는 DART 숫자로
+        만든 신호(f, accrual, loss)로 빼지 않는다 (순발행은 KRX 값이라 그대로)."""
+        base = self.S.targets(strict)
+
+        def f(P, i, v):
+            if v["fam"] != "bv_x":
+                return base(P, i, v)
+            w = inv.targets(P, i, {"fam": "cap", "reb": "Y"})
+            if w is None:
+                return None
+            if v.get("top"):
+                top = {s for s, _ in (inv.universe(P, i) or [])[:v["top"]]}
+                w = {s: x for s, x in w.items() if s in top}
+            fl = self.flags(i)
+            revised = set()
+            if strict:
+                F, _ = self.S.features(i)
+                revised = {s for s, x in F.items() if x["revised_after"]}
+            drop = set()
+            for k in v["drop"]:
+                drop |= fl[k] if k == "nsi" else fl[k] - revised
+            keep = {s: x for s, x in w.items() if s not in drop}
+            tot = sum(keep.values())
+            return {s: x / tot for s, x in keep.items()} if tot else {}
+        return f
+
+
+def run_x(P, S, X, v, start, end, delist="A", cost=inv.COST, cost_x=1.0, dividends=True, strict=False,
+          lag=inv.NW_LAG, bench=None):
+    """run_one 과 같은 계산에 r5 규칙(bv_x)과 다른 기준(bench, 기본 BV)을 더한 것."""
+    if not start.endswith("-%02d" % (inv.YEAR_MONTH + 1)):
+        raise ValueLabError("첫 수익률 달은 %d월이어야 합니다 (4월 말 신호 다음 달)" % (inv.YEAR_MONTH + 1))
+    bench = bench or BENCH
+    inc = S.income() if dividends else None
+    tf = X.targets(strict)
+    strat = inv.backtest(P, v, start, end, delist, cost, cost_x, tf, inc)
+    base = inv.backtest(P, bench, start, end, delist, cost, cost_x, tf, inc)
+    small = [(P.months[i][0], len(S.features(i)[0])) for i, T in signals(P)
+             if start <= P.months[i + 1][0] <= end and len(S.features(i)[0]) < MIN_V]
+    if small:
+        raise ValueLabError("가치 대상 V(T) 가 %d개보다 작은 신호가 있습니다 (%s). python value.py check 로 자료를 보세요"
+                            % (MIN_V, ", ".join("%s %d개" % x for x in small)))
+    st = inv.compare(strat, base)
+    if lag != inv.NW_LAG:
+        b = {x["m"]: x["r"] for x in base}
+        st.update(inv.nw([x["r"] - b[x["m"]] for x in strat], lag))
+    st.update({"rule": v["label"], "bench_rule": bench["label"], "from": start, "to": end, "delist": delist,
+               "cost_x": cost_x, "months": len(strat), "dividends": dividends, "strict": strict, "nw_lag": lag,
+               "monthly": [[x["m"], x["r"]] for x in strat], "bench_monthly": [[x["m"], x["r"]] for x in base]})
+    return st
+
+
+def engine_print_x():
+    """r5 를 잠글 때의 지문: engine_print 에 r5 함수와 상수를 더한다."""
+    src = "\n".join(_source(o) for o in (accrual, nsi, top_share, R5, run_x, rules_r5))
+    return hashlib.sha256((engine_print() + src + repr((R5_TOP, R5_FLAGS, T50))).encode("utf-8")).hexdigest()[:16]
+
+
+def uses_x(rules_map):
+    return any(v.get("fam") == "bv_x" for v in rules_map.values())
+
+
 # ---------------------------------------------------------------- 전진 시험 (forward)
 #
 # r3·r4 규칙과 EWV 를 잠그고 잠근 뒤의 달만 채점한다. 판정 대상, 판정에 쓰는 첫 몇 달, 홀름 보정은 잠글 때 정하고,
@@ -629,8 +787,8 @@ CLOSE_TIME = datetime.time(15, 30)
 FORWARD_NOTE = "잠근 뒤의 성적도 한 구간의 과거입니다. 미래를 약속하지 않고, 종목 목록은 내지 않습니다."
 
 
-def tracked():
-    return rules() + rules_r4() + [EWV]
+def tracked(family="r34"):
+    return rules_r5() + [T50] if family == "r5" else rules() + rules_r4() + [EWV]
 
 
 def _source(o):
@@ -672,13 +830,16 @@ def forward_paths(dirname, nm):
     return os.path.join(dirname, nm + ".lock.json"), os.path.join(dirname, nm + ".json")
 
 
-def forward_lock(judged, now, nm, dirname=FORWARD_DIR, judge_months=JUDGE_MONTHS):
-    """r3·r4 규칙 12개와 EWV 를 잠근다. judged 는 판정 대상 (홀름 보정). 같은 이름이 있으면 덮어쓰지 않는다."""
+def forward_lock(judged, now, nm, dirname=FORWARD_DIR, judge_months=JUDGE_MONTHS, family="r34"):
+    """family r34: r3·r4 규칙 12개와 EWV, r5: r5 규칙 5개와 T50 을 잠근다. judged 는 판정 대상 (홀름 보정).
+    같은 이름이 있으면 덮어쓰지 않는다."""
     if not LOCK_NAME.match(nm or ""):
         raise ValueLabError("--name 은 영문·숫자·.-_ 64자까지입니다 (받은 값 %r)" % nm)
     if judge_months < 12:
         raise ValueLabError("--judge-months 는 12 이상입니다")
-    rs = tracked()
+    if family not in ("r34", "r5"):
+        raise ValueLabError("--family 는 r34 또는 r5 입니다")
+    rs = tracked(family)
     labels = [v["label"] for v in rs]
     judged = [j.strip() for j in judged or []]
     bad = [j for j in judged if j not in labels]
@@ -687,7 +848,8 @@ def forward_lock(judged, now, nm, dirname=FORWARD_DIR, judge_months=JUDGE_MONTHS
     if not judged or len(set(judged)) != len(judged) or len(judged) > MAX_JUDGED:
         raise ValueLabError("판정 대상은 서로 다른 1 ~ %d개입니다 (많을수록 홀름 보정이 커진다)" % MAX_JUDGED)
     doc = {"name": nm, "rules": {v["label"]: v for v in rs}, "judged": judged, "first_month": first_month(now),
-           "judge_months": int(judge_months), "cost": dict(inv.COST), "bench": BENCH["label"], "engine": engine_print(),
+           "judge_months": int(judge_months), "cost": dict(inv.COST), "bench": BENCH["label"],
+           "engine": engine_print_x() if family == "r5" else engine_print(),
            "locked_at": now.strftime("%Y-%m-%d %H:%M")}
     doc["hash"] = lock_hash(doc)
     path = forward_paths(dirname, nm)[0]
@@ -716,9 +878,10 @@ def read_lock(path):
             same = False
         if not same:
             raise ValueLabError("잠근 규칙 %r 의 정의가 지금 value.py 와 다릅니다. 새 --name 으로 다시 잠그세요" % label)
-    if doc["engine"] != engine_print():
+    now = engine_print_x() if uses_x(doc["rules"]) else engine_print()
+    if doc["engine"] != now:
         raise ValueLabError("계산 코드가 잠근 뒤 바뀌었습니다 (지문 %s -> %s). 같은 규칙이라도 결과가 달라지므로 새 --name "
-                            "으로 다시 잠그세요" % (doc["engine"], engine_print()))
+                            "으로 다시 잠그세요" % (doc["engine"], now))
     return doc
 
 
@@ -754,16 +917,24 @@ def forward_update(lock, P, S):
     y, mo = int(fm[:4]), int(fm[5:7])
     start = "%d-%02d" % (y if mo > inv.YEAR_MONTH else y - 1, inv.YEAR_MONTH + 1)
     keep = set(done)
+    X = R5(S) if uses_x(lock["rules"]) else None
+
+    def run(v, delist):
+        if X is None:
+            return run_one(P, S, v, start, done[-1], delist, lock["cost"])
+        vs = lock["rules"].get(v.get("vs")) if v.get("vs") else None
+        return run_x(P, S, X, v, start, done[-1], delist, lock["cost"], bench=vs)
+
     for label, v in lock["rules"].items():
-        a = run_one(P, S, v, start, done[-1], "A", lock["cost"])
+        a = run(v, "A")
         b = dict(a["bench_monthly"])
         rs = [(m, r) for m, r in a["monthly"] if m in keep]
         ex = [r - b[m] for m, r in rs]
-        row = {"rule": label, "judged": label in lock["judged"], "n": len(rs),
+        row = {"rule": label, "judged": label in lock["judged"], "n": len(rs), "vs": v.get("vs") or lock["bench"],
                "cum": _prod(1.0 + r for _, r in rs) - 1.0, "bench_cum": _prod(1.0 + b[m] for m, _ in rs) - 1.0,
                "excess": ex, "mean": sum(ex) / len(ex) if ex else None}
         if row["judged"]:
-            bb = run_one(P, S, v, start, done[-1], "B", lock["cost"])
+            bb = run(v, "B")
             bm = dict(bb["bench_monthly"])
             row["excess_b"] = [r - bm[m] for m, r in bb["monthly"] if m in keep]
         res["rules"].append(row)
@@ -789,7 +960,7 @@ def forward_update(lock, P, S):
 
 def lock_report(doc, path):
     return ["%s 에 잠갔습니다 (%s)." % (path, doc["locked_at"]),
-            "규칙 %d개 (r3 8, r4 4, EWV) 를 %s 부터의 달만 채점합니다. 기준 %s." % (
+            "규칙 %d개를 %s 부터의 달만 채점합니다. 기준 %s (vs 가 있는 규칙은 그 규칙과 견줌)." % (
                 len(doc["rules"]), doc["first_month"], doc["bench"]),
             "판정 대상 %d개 (홀름 보정): %s" % (len(doc["judged"]), ", ".join(doc["judged"])),
             "판정은 첫 %d달로 한 번 (보정 p < 0.05, A·B 판 평균 초과수익 플러스). 그 뒤 달은 참고만." % doc["judge_months"],
@@ -821,7 +992,7 @@ def forward_report(res):
 def forward_main(a):
     now = krx.parse_now(a.now)
     if a.fcmd == "lock":
-        doc, path = forward_lock(a.judge, now, a.name, a.dir, a.judge_months)
+        doc, path = forward_lock(a.judge, now, a.name, a.dir, a.judge_months, a.family)
         print(json.dumps(doc, ensure_ascii=False, indent=2) if a.json else "\n".join(lock_report(doc, path)))
         return 0
     if a.fcmd == "update":
@@ -932,6 +1103,7 @@ def main(argv=None):
     fl.add_argument("--name", required=True)
     fl.add_argument("--judge", action="append", help="판정 대상 규칙 이름 (여러 번, 1 ~ %d개)" % MAX_JUDGED)
     fl.add_argument("--judge-months", type=int, default=JUDGE_MONTHS, help="판정에 쓰는 첫 달 수 (기본 %d)" % JUDGE_MONTHS)
+    fl.add_argument("--family", choices=("r34", "r5"), default="r34", help="r34: r3·r4 규칙과 EWV, r5: r5 규칙과 T50")
     fu = fs.add_parser("update", help="잠근 첫 달부터 끝난 달을 채점")
     fu.add_argument("--name")
     for x in (fl, fu):
@@ -946,7 +1118,7 @@ def main(argv=None):
         return 1
     try:
         if a.cmd == "rules":
-            for v in [BENCH, EWV] + rules() + rules_r4():
+            for v in [BENCH, EWV, T50] + rules() + rules_r4() + rules_r5():
                 print(v["label"])
             return 0
         if a.cmd == "data":

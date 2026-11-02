@@ -8,11 +8,12 @@ description: >-
   표준오차와 한쪽 p, 연복리, 변동성, 최대 낙폭, 적립식과 한 번에 넣기 비교를 낸다. value.py 는 가치 규칙 8가지
   (저PBR, 저PER, 고배당, 저PBR+고ROE, 저PBR+모멘텀, 그레이엄·버핏·린치 점검표)를 DART 사업보고서(그때 접수된 것만)와
   배당을 넣은 수익률로, 해마다 4월 말에 바꿔 시험한다. r4 규칙 4개는 F-score(피오트로스키)와 매출총이익/자산
-  (노비-마크스)을 쓴다. forward 는 규칙을 지금 잠그고 앞으로의 달만 채점하는 전진 시험이다. 지금 살 종목은 내지 않는다.
+  (노비-마크스)을 쓴다. r5 규칙 5개는 시가총액가중에서 발생액·순발행·적자·F-score 위험 신호가 켜진 종목만 뺀다.
+  forward 는 규칙을 지금 잠그고 앞으로의 달만 채점하는 전진 시험이다. 지금 살 종목은 내지 않는다.
   사용자가 "장기 투자 검증", "모멘텀 전략 돼?", "저변동성", "적립식이 나아?", "인덱스보다 나은 전략",
   "리밸런싱", "저PBR 전략", "가치주 백테스트", "배당주 전략", "대가 점검표로 고르면", "factor backtest",
-  "value backtest", "long-term strategy", "F-score", "피오트로스키", "매출총이익", "전진 시험", "forward test" 라고
-  하면 쓴다. 주문을 내지 않는다.
+  "value backtest", "long-term strategy", "F-score", "피오트로스키", "매출총이익", "발생액", "순발행", "증자 많은 종목",
+  "전진 시험", "forward test" 라고 하면 쓴다. 주문을 내지 않는다.
 argument-hint: "data [--from 2010-01-04] | rules | run --rule \"모멘텀12-1 30종목 매달\" [--from 2011-02 --to 2023-10] [--delist B] [--cost-x 2] | dca | value.py data | check | run --rule \"저PBR 30종목 연1회\" | value.py forward lock|update --name value-2026-11"
 ---
 
@@ -34,7 +35,7 @@ python "${CLAUDE_SKILL_DIR}/invest.py" run --rule "저변동성 50종목 분기"
 python "${CLAUDE_SKILL_DIR}/invest.py" dca --months 36           # B1 을 한 번에 넣기 대 매달 나눠 넣기
 python "${CLAUDE_SKILL_DIR}/value.py" data                       # 가치 규칙용 DART 재무·배당·접수일 (DART 키 + KRX 키)
 python "${CLAUDE_SKILL_DIR}/value.py" check                      # 받은 범위와 자료 점검 (걸리면 멈춤)
-python "${CLAUDE_SKILL_DIR}/value.py" rules                      # 가치 규칙 이름 14개 (BV, EWV, r3 8, r4 4)
+python "${CLAUDE_SKILL_DIR}/value.py" rules                      # 가치 규칙 이름 20개 (BV, EWV, T50, r3 8, r4 4, r5 5)
 python "${CLAUDE_SKILL_DIR}/value.py" run --rule "저PBR 30종목 연1회" --delist B --cost-x 2 --json
 python "${CLAUDE_SKILL_DIR}/value.py" forward update --name value-2026-11   # 잠근 뒤 끝난 달만 채점 (아래 전진 시험)
 ```
@@ -144,16 +145,40 @@ ROA, 비유동부채 / 자산이 전년보다 낮음, 유동비율이 전년보�
 | 매출총이익/자산+저PBR 30종목 연1회 | 매출총이익/자산 순위 + PBR 낮은 순 순위의 합. 같은 비중 |
 | 시가총액가중 F-score 2 이하 제외 연1회 | BV 의 시가총액 비중에서 V 의 F-score 2 이하 종목을 빼고 다시 1 로 맞춤. V 밖(금융 등)과 F-score 없는 종목은 둔다 |
 
+## 가치 규칙 r5 5개 (value.py)
+
+시가총액가중 기준(BV)을 거의 그대로 들고, 문헌에 있는 위험 신호가 켜진 종목만 빼서 다시 1 로 맞춘다. 빼는 비중이 작아
+기준과의 차이(추적오차)가 작고, 그래서 작은 차이도 우연과 가려낼 수 있다.
+
+- **발생액** (Sloan 1996, 현금흐름표 판 Hribar and Collins 2002): (당기순이익 - 영업현금흐름) / 평균 자산총계. V 에서 큰 쪽 10%.
+- **순발행** (Pontiff and Woodgate 2008): ln(보통주 시가총액 T / T-12) - ln(조정 주가 T / T-12). 무상증자·액면분할은 조정
+  주가에 들어 있어 빠지고, 유상증자·합병 신주·출자전환이 남는다. U 에서 큰 쪽 10%.
+- **적자**: V 에서 FY(T-1) 지배주주 순이익 0 이하. **F-score 2 이하**: r4 와 같다.
+- 정정 뺀 판(`--strict`)에서는 T 뒤에 정정된 회사를 DART 숫자로 만든 신호(F-score, 발생액, 적자)로 빼지 않는다.
+
+| 이름 | 빼는 것 | 견주는 기준 |
+| --- | --- | --- |
+| 시가총액가중 발생액 상위 10% 제외 연1회 | 발생액 | BV |
+| 시가총액가중 순발행 상위 10% 제외 연1회 | 순발행 | BV |
+| 시가총액가중 적자 제외 연1회 | 적자 | BV |
+| 시가총액가중 위험 신호 넷 제외 연1회 | F-score, 발생액, 순발행, 적자 가운데 하나라도 | BV |
+| 상위 50 시가총액가중 위험 신호 넷 제외 연1회 | U 의 시가총액 상위 50 에서 넷 가운데 하나라도 | 상위 50 시가총액가중 연1회 |
+
+마지막 것은 개인이 직접 들 수 있는 크기의 판이다. 상위 50 으로 좁히는 효과(대형주 쏠림)가 섞이지 않게 상위 50
+시가총액가중과 견준다. r5 계산은 잠근 전진 시험의 지문을 지키려고 새 함수(R5, run_x)로만 만들었다.
+
 ## 전진 시험 (value.py forward)
 
 과거 시험은 그 기간의 시장을 사람이 이미 안다. 깨끗한 확인은 규칙을 지금 잠그고 앞으로의 달만 채점하는 것뿐이다.
 
 ```bash
 python "${CLAUDE_SKILL_DIR}/value.py" forward lock --name value-2026-11 --judge "규칙 이름" --judge "..." [--judge-months 36]
+python "${CLAUDE_SKILL_DIR}/value.py" forward lock --family r5 --name value-r5-2026-12 --judge "..."   # r5 규칙과 T50
 python "${CLAUDE_SKILL_DIR}/value.py" forward update --name value-2026-11    # 매달 초, invest.py data 뒤
 ```
 
-- **잠금.** r3 8개, r4 4개, EWV 를 모두 잠그고, 그 가운데 판정 대상 1 ~ 6개와 판정에 쓸 첫 달 수(기본 36)를 정한다.
+- **잠금.** `--family r34` (기본) 는 r3 8개, r4 4개, EWV 를, `--family r5` 는 r5 5개와 T50 을 모두 잠그고, 그 가운데
+  판정 대상 1 ~ 6개와 판정에 쓸 첫 달 수(기본 36)를 정한다. 기준과 다른 것과 견주는 규칙(상위 50 판)은 그 기준과 채점한다.
   `trader-kr/forward/value/<이름>.lock.json` 에 쓰고 덮어쓰지 않는다. 잠근 때가 그달 첫 평일 장 마감(15:30) 전이면 그달,
   아니면 다음 달부터 채점한다 (그달 수익률은 그달 첫 거래일 종가부터 센다).
 - **채점.** 다음 달 첫 거래일까지 자료가 있는 (끝난) 달만 센다. 규칙마다 누적 수익률, BV 누적, 월 초과수익 평균을 낸다.

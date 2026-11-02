@@ -395,6 +395,66 @@ class World(unittest.TestCase):
             vm.MIN_V = old
             shutil.rmtree(tmp)
 
+    def test_r5_flags_targets_and_run_x(self):
+        old = vm.MIN_V
+        vm.MIN_V = 1
+        try:
+            i = self.month("2016-04")
+            X = vm.R5(self.S)
+            fl = X.flags(i)
+            self.assertEqual(fl["n"]["U"], fl["n"]["nsi"])
+            for s, v in fl["values"]["nsi"].items():
+                self.assertAlmostEqual(v, 0.0, places=6, msg=s)              # 합성 세계는 주식 수가 그대로
+            self.assertIn("800000", fl["loss"])                              # 적자
+            self.assertEqual(len(fl["accrual"]), 1)                          # V 4개의 10% 올림
+            w = X.targets()(self.P, i, vm.find_rule("시가총액가중 적자 제외 연1회"))
+            bv = inv.targets(self.P, i, {"fam": "cap", "reb": "Y"})
+            self.assertNotIn("800000", w)
+            self.assertAlmostEqual(sum(w.values()), 1.0)
+            self.assertAlmostEqual(w["100000"] / w["200000"], bv["100000"] / bv["200000"])   # 남은 종목끼리 비율은 그대로
+            self.assertIn("300000", w)                                       # 은행(V 밖)은 순발행으로만 빠진다
+            t50 = X.targets()(self.P, i, vm.T50)
+            self.assertEqual(t50.keys(), bv.keys())                          # 합성 세계는 50개보다 작다
+            # bv_x 가 아닌 규칙은 Store.targets 그대로, run_x 는 run_one 과 같은 수익률
+            v = vm.find_rule("저PBR 30종목 연1회")
+            self.assertEqual(X.targets()(self.P, i, v), self.S.targets()(self.P, i, v))
+            a = vm.run_one(self.P, self.S, v, "2016-05", "2018-05", "A", inv.COST)
+            b = vm.run_x(self.P, self.S, X, v, "2016-05", "2018-05", "A", inv.COST)
+            self.assertEqual(a["monthly"], b["monthly"])
+            self.assertEqual(a["bench_monthly"], b["bench_monthly"])
+            c = vm.run_x(self.P, self.S, X, vm.find_rule("상위 50 시가총액가중 위험 신호 넷 제외 연1회"), "2016-05", "2018-05",
+                         "A", inv.COST, bench=vm.T50)
+            self.assertEqual(c["bench_rule"], vm.T50["label"])
+        finally:
+            vm.MIN_V = old
+
+    def test_r5_forward_lock_has_its_own_fingerprint_and_compares_rule_5_with_t50(self):
+        old = vm.MIN_V
+        vm.MIN_V = 1
+        tmp = tempfile.mkdtemp()
+        try:
+            labels = [v["label"] for v in vm.rules_r5()]
+            now = datetime.datetime(2017, 5, 1, 10, 0)
+            doc, path = vm.forward_lock(labels[3:], now, "r5", tmp, judge_months=12, family="r5")
+            self.assertEqual(sorted(doc["rules"]), sorted(labels + [vm.T50["label"]]))
+            self.assertEqual(doc["engine"], vm.engine_print_x())
+            self.assertNotEqual(doc["engine"], vm.engine_print())
+            with self.assertRaises(vm.ValueLabError):
+                vm.forward_lock(["저PBR 30종목 연1회"], now, "r5b", tmp, family="r5")   # r5 잠금에 없는 규칙
+            res = vm.forward_update(vm.read_lock(path), self.P, self.S)
+            last = [r for r in res["rules"] if r["rule"] == labels[4]][0]
+            self.assertEqual(last["vs"], vm.T50["label"])
+            X = vm.R5(self.S)
+            st = vm.run_x(self.P, self.S, X, vm.find_rule(labels[4]), "2017-05", "2018-05", "A", inv.COST, bench=vm.T50)
+            b = dict(st["bench_monthly"])
+            self.assertEqual(last["excess"], [r - b[m] for m, r in st["monthly"]])
+            old_lock, old_path = vm.forward_lock(["저PBR 30종목 연1회"], now, "r34", tmp, judge_months=12)
+            self.assertEqual(old_lock["engine"], vm.engine_print())                # r3·r4 잠금은 예전 지문 그대로
+            vm.read_lock(old_path)
+        finally:
+            vm.MIN_V = old
+            shutil.rmtree(tmp)
+
     def test_too_small_value_universe_stops_the_run(self):
         with self.assertRaises(vm.ValueLabError):
             vm.run_one(self.P, self.S, vm.find_rule("저PBR 30종목 연1회"), "2016-05", "2018-05")
@@ -620,6 +680,32 @@ class R4(unittest.TestCase):
         for v in R:
             self.assertEqual(vm.find_rule(v["label"]), v)
         self.assertEqual(len(vm.rules()), 8)                         # r3 의 8개는 그대로
+
+
+class R5Signals(unittest.TestCase):
+    def test_accrual_and_top_share(self):
+        rows = [{"year": 2014, "assets": 100.0}, {"year": 2015, "assets": 140.0, "ni": 12.0, "ocf": 6.0}]
+        self.assertAlmostEqual(vm.accrual(rows), (12.0 - 6.0) / 120.0)
+        rows[1]["ni"] = None
+        rows[1]["ni_parent"] = 3.0
+        self.assertAlmostEqual(vm.accrual(rows), (3.0 - 6.0) / 120.0)            # 당기순이익이 없으면 지배주주 몫
+        rows[0]["year"] = 2013
+        self.assertIsNone(vm.accrual(rows))                                      # 두 해가 이어져 있지 않음
+        self.assertIsNone(vm.accrual(rows[1:]))
+        vals = {"A": 0.3, "B": 0.1, "C": 0.3, "D": -0.2}
+        self.assertEqual(vm.top_share(vals, 0.10), {"A"})                        # 4개의 10% 올림 = 1, 같으면 코드 순
+        self.assertEqual(vm.top_share(vals, 0.50), {"A", "C"})
+        self.assertEqual(vm.top_share({}, 0.10), set())
+
+    def test_five_r5_rules(self):
+        R = vm.rules_r5()
+        self.assertEqual([v["drop"] for v in R], [["accrual"], ["nsi"], ["loss"], list(vm.R5_FLAGS), list(vm.R5_FLAGS)])
+        self.assertEqual([v.get("top") for v in R], [None, None, None, None, 50])
+        self.assertEqual(R[4]["vs"], vm.T50["label"])
+        names = [v["label"] for v in vm.rules() + vm.rules_r4() + R] + [vm.BENCH["label"], vm.EWV["label"], vm.T50["label"]]
+        self.assertEqual(len(set(names)), 20)
+        for v in R + [vm.T50]:
+            self.assertEqual(vm.find_rule(v["label"]), v)
 
 
 class EngineHooks(unittest.TestCase):
