@@ -19,6 +19,27 @@
 
 > 교육과 도구일 뿐 투자 권유가 아니다 (not financial advice). 단타를 하는 사람 대부분은 돈을 잃는다.
 
+## 이렇게 보인다
+
+키 없이 도는 [데모](#키-없이-먼저-돌려-보기) (`python krcommon/demo.py`, 합성 종목이고 실제 시세가 아니다) 에서 10:15 에
+"오늘 장 봐 줘" 라고 한 결과다. 후보마다 신호, 손절·목표, 수량, PASS / BLOCK, 남은 장 재생을 한 덩어리로 보여 주고,
+주문은 내지 않는다.
+
+```text
+오늘 장: 2026-10-28 (수) 10:15, 접속매매 중. 새 진입은 14:50 까지, 정리는 15:15.
+스캔: 오프라인 3종목. 시가 범위 돌파 1종목.
+신호가 가까운 1종목을 계획했습니다.
+
+1. PASS      SYN001 합성종목  신호 10:15 (방금), 30,450
+   손절 30,100 / 목표 31,150 (2R) / 15:15 까지 정리. 비용 뺀 손익비 1.50
+   119주 = 3,623,550원. 손절 때 -49,893원, 목표 때 +74,788원 (비용 뺀 추정)
+   호가: 시장가면 평균 30,500, 중간가보다 주당 25원 비쌈
+   재생 2,000번: 목표 먼저 23%, 손절 먼저 60%. 닿은 것 중 목표 28% (본전 33%). 손절 쪽으로 기웁니다
+
+통과 1, 막힘·주문 없음 0. 후보마다 따로 점검했습니다. 여러 개를 사면 하루 한도 (거래 3번, 하루 손실 150,000원) 를 함께 봐야 합니다.
+주문은 내지 않았습니다. 모의투자로 넣으려면 /trader-kr-broker (후보마다 yes), 직접 샀다면 가격·시각·수량을 알려 주면 일지에 적습니다.
+```
+
 ## 스킬 12종
 
 | 명령 | 이름 | 하는 일 |
@@ -320,7 +341,10 @@ daily data since 2010 (it never prints what to buy now), a checklist that scores
 and Lynch criteria from DART annual reports and KRX market caps (numbers from code, no buy or sell signals) with a
 thesis tracker, an analyst subagent that runs those steps and returns one page, and an order
 skill that trades only on a Korea Investment & Securities paper account after the same three approvals as the original),
-reading Toss Securities Open API market data. It adds KRX session hours (continuous trading 09:00 to 15:20), tick sizes,
+reading Toss Securities Open API market data. The long-term lab also tests 17 value, quality and risk-flag rules on
+DART annual reports as they were filed at the time (rebalanced each April), can lock rules and score only the months
+after the lock, and `implied.py` backs out what today's market cap assumes (multiple bands, reverse DCF, required ROE);
+none of it prints what to buy. It adds KRX session hours (continuous trading 09:00 to 15:20), tick sizes,
 the ±30% price limits, transaction tax and fees in every loss and reward:risk figure, and blocks on exchange warnings,
 volatility interruptions and trading halts. Orders go only to the KIS paper-trading server, after a risk-check PASS, a "yes" in chat and a tool approval; no script calls a live account or Toss order endpoints. The journal can read the user's own Toss account (holdings and order history, GET only) to log fills placed in the Toss app. Tests run
 offline on synthetic data, because Toss data may only be used for the account holder's own trading.
