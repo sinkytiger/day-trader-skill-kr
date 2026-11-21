@@ -23,14 +23,13 @@
 
 import argparse
 import datetime
-import glob
 import json
 import os
 import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir))
-from krcommon import dart, dartdoc, krx  # noqa: E402
+from krcommon import dart, dartdoc, krx, watch  # noqa: E402
 
 STATE = os.path.join("trader-kr", "state", "news.json")
 KEEP_DAYS = 30
@@ -97,70 +96,23 @@ def item(r):
 
 # ---------------------------------------------------------------- 관심 종목
 
-def _sym(x):
-    try:
-        return krx.norm_symbol(x)
-    except krx.KrxError:
-        return None
-
-
-def watched(root="trader-kr"):
-    """[(종목, 이름, 어디서)]. 스캐너 결과, 계획, 오늘 계획들, 일지의 열린 거래. 같은 종목은 한 번."""
-    out, seen = [], set()
-
-    def add(sym, name, where):
-        s = _sym(sym)
-        if s and s not in seen:
-            seen.add(s)
-            out.append((s, name, where))
-
-    wl = krx.read_json(os.path.join(root, "watchlist.json"), "스캐너 결과", required=False)
-    rows = wl.get("hits", wl.get("symbols", [])) if isinstance(wl, dict) else (wl or [])
-    for h in rows:
-        if isinstance(h, dict):
-            add(h.get("symbol"), h.get("name"), "스캐너")
-        else:
-            add(h, None, "스캐너")
-    plan = krx.read_json(os.path.join(root, "plan.json"), "계획", required=False)
-    if isinstance(plan, dict) and plan.get("symbol"):
-        add(plan.get("symbol"), plan.get("name"), "계획")
-    for p in sorted(glob.glob(os.path.join(root, "today", "*", "plan.json"))):
-        doc = krx.read_json(p, "오늘 계획", required=False)
-        if isinstance(doc, dict) and doc.get("symbol"):
-            add(doc.get("symbol"), doc.get("name"), "오늘 계획")
-    jpath = os.path.join(root, "journal.jsonl")
-    if os.path.exists(jpath):
-        with open(jpath, encoding="utf-8") as fh:
-            for line in fh:
-                try:
-                    r = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(r, dict) and r.get("symbol") and r.get("exit_price") is None:
-                    add(r.get("symbol"), r.get("name"), "일지 (열린 거래)")
-    return out
+_sym = watch._sym
+watched = watch.watched
 
 
 # ---------------------------------------------------------------- 기간과 본 것
 
 def window(now, days=None, since=None):
-    """[시작일, ..., 오늘]. 기본은 바로 앞 평일부터."""
-    today = now.date()
-    if since:
-        start = krx.parse_day(since)
-        if start is None:
-            raise NewsError("--since 는 2026-11-20 같은 날짜입니다 (받은 값 %r)" % since)
-    elif days is not None:
-        if days < 1 or days > 31:
-            raise NewsError("--days 는 1 ~ 31 입니다")
-        start = today - datetime.timedelta(days=days - 1)
-    else:
-        start = today - datetime.timedelta(days=1)
-        while start.weekday() >= 5:
-            start -= datetime.timedelta(days=1)
-    if start > today:
-        raise NewsError("시작일이 오늘보다 늦습니다")
-    return [start + datetime.timedelta(days=i) for i in range((today - start).days + 1)]
+    """[시작일, ..., 오늘]. 기본은 바로 앞 평일부터. 하루 전체 목록을 받으므로 31일까지만."""
+    if days is not None and (days < 1 or days > 31):
+        raise NewsError("--days 는 1 ~ 31 입니다")
+    try:
+        out = watch.window(now, days, since)
+    except krx.KrxError as e:
+        raise NewsError(str(e))
+    if len(out) > 31:
+        raise NewsError("기간은 31일까지입니다 (하루 전체 공시 목록을 받으므로). 한 회사의 긴 기간은 DART 에서 보세요")
+    return out
 
 
 def load_state(path):

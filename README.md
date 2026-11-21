@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml/badge.svg)](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml)
 
-국내 주식(코스피·코스닥) 단타용 Claude 스킬 13종. 차트를 스캔하고, 관심 종목의 새 공시를 알려 주고, 진입 순간을
+국내 주식(코스피·코스닥) 단타용 Claude 스킬 14종. 차트를 스캔하고, 관심 종목의 새 공시와 임원·주요주주의 매매 보고를 알려 주고, 진입 순간을
 알려 주고, 손절가와 목표가를 먼저 정하고, 남은 장을 10,000번 다시 돌려 보고, 최대 손실에 맞춰 수량을 정하고, 한도를
 넘는 주문을 막는다. 그리고
 실제 거래를 일지에 적어 계획을 지켰는지 재고, 여러 규칙을 앞 기간에서 골라 뒤 기간에서 확인해 비용을 내고도 남는
@@ -41,13 +41,14 @@
 주문은 내지 않았습니다. 모의투자로 넣으려면 /trader-kr-broker (후보마다 yes), 직접 샀다면 가격·시각·수량을 알려 주면 일지에 적습니다.
 ```
 
-## 스킬 13종
+## 스킬 14종
 
 | 명령 | 이름 | 하는 일 |
 | --- | --- | --- |
 | `/trader-kr-today` | 오늘 장 한 번에 | 지금 시각에 맞춰 아래 스킬을 이어서 돌린다. 장중에는 후보마다 신호, 손절·목표, 수량, PASS / BLOCK, 재생을 한 덩어리로 |
 | `/trader-kr-scanner` | 차트 스캐너 | 거래대금 상위 100 (또는 전 종목) 에서 시가 범위 돌파, 20일 신고가, 깃발, 과매도 반등을 찾는다 |
 | `/trader-kr-news` | 공시 알림 | 관심 종목(스캐너 결과, 계획, 일지의 열린 거래)에 새로 나온 DART 공시만 꼬리표와 함께 보여 준다. 잠정실적·유상증자·거래정지 같은 공시에는 ! 를 붙이고, 한 번 보여 준 것은 다시 보여 주지 않는다. `market` 은 시장 전체의 ! 공시, `read` 는 공시 원문 (생년월일·주소·전화번호는 가림) |
+| `/trader-kr-insider` | 임원·주요주주 보고 | 임원과 주요주주가 산 뒤에 내는 소유상황보고서와 사기 30일 전에 내는 거래계획보고서를 관심 종목이나 시장 전체에서 한 번씩 알리고, 원문에서 사유·결제일·수량·단가·계획 기간을 뽑는다. 장내 매매만 금액으로 더하고, 접수까지 걸린 평일을 보인다. 공개된 보고일 뿐 미공개 정보가 아니다 |
 | `/trader-kr-entry` | 진입 타이머 | 5분봉이 시가 범위 고가 위에서 끝나는 순간을 알려 준다 |
 | `/trader-kr-exit` | 청산 계획 | 사기 전에 손절가와 목표가를 호가 단위로 정하고 비용 뺀 손익비를 보여 준다 |
 | `/trader-kr-timemachine` | 타임머신 | 지난 60 거래일 5분봉으로 남은 장을 10,000번 재생하고 같은 규칙을 지난 거래일에 다시 적용한다 |
@@ -67,9 +68,8 @@
 부르지 않으며, 파일을 직접 고치지 않는다 (도구는 Bash, Read, Glob, Grep). 논지가 없으면 대신 만들지 않는다.
 DART 키와 KRX 키가 필요하다. 파일은 `agents/trader-kr-analyst.md`.
 
-원본의 뉴스는 DART 공시 알림 (`/trader-kr-news`) 으로 옮겼다. 나머지 셋 (가격 알림, 실적 요약, 의원 매매 공시) 은
-아직 옮기지 않았다. 실적 요약은 DART 분기·반기 재무, 의원 매매는 DART 임원·주요주주 소유보고와 거래계획보고로 바꿀
-계획이다. 주문 실행은 아래 "주문 (모의투자)" 를 보라.
+원본의 뉴스는 DART 공시 알림 (`/trader-kr-news`) 으로, 의원 매매 공시는 임원·주요주주 보고 (`/trader-kr-insider`) 로
+옮겼다. 나머지 둘 (가격 알림, 실적 요약) 은 아직 옮기지 않았다. 실적 요약은 DART 분기·반기 재무로 바꿀 계획이다. 주문 실행은 아래 "주문 (모의투자)" 를 보라.
 
 ## 흐름
 
@@ -79,6 +79,7 @@ DART 키와 KRX 키가 필요하다. 파일은 `agents/trader-kr-analyst.md`.
 today = scanner -> entry -> exit -> budget -> risk -> timemachine  (한마디로, 후보 여러 개)
 scanner -> entry -> exit -> timemachine -> budget -> risk      (거래 하나, 단계별로)
 news: check / market / read                                    (장 전, 스캐너 뒤, 진입 전. 새 공시와 원문)
+insider: new / market --plans / show                           (임원·주요주주의 소유상황·거래계획 보고)
 journal: sync / open / close / holdings / report              (산 뒤, 판 뒤, 주말마다. sync 는 토스 체결 읽기)
 lab: run                                                       (규칙을 바꾸기 전에)
 lab: forward lock -> forward update                            (규칙 하나를 잠그고, 매주 그 뒤 거래일만 다시 잼)
@@ -221,6 +222,7 @@ KRX 응답이 한 번에 몇 초씩 걸려서 날짜 여섯 개씩 동시에 받
 | 체결 비용 | 없음 | 토스 호가창으로 시장가 평균 체결가, 중간가 절약, 손절 때 밀림을 재서 수량과 최대 손실에 넣음 |
 | 비용 필터 | 없음 | 손절 때 비용과 밀림이 주당 위험의 30% 를 넘는 거래를 막음 |
 | 기록과 검증 | 없음 | 거래 일지, 워크포워드 전략 검증 실험실 |
+| 내부자 매매 | 하원의원 거래 보고 (PTR, 45일 안) | 임원·주요주주 소유상황보고 (결제일부터 5일 안) 와 거래계획보고 (30일 전) |
 | 주문 | Alpaca, IBKR (모의계좌 기본, 손절·목표는 브래킷 주문) | 한국투자증권 모의투자만. 목표가는 지정가로 걸고, 손절은 watch 가 지켜보다 시장가로 |
 
 **호가 단위와 체결가.** 손절가, 목표가, 지정가는 한국거래소의 2023-01-25 표 (2,000원 미만 1원, 5,000원 미만 5원,
@@ -311,6 +313,7 @@ GET 만 보내는지), 가짜 DART 공시와 사업보고서 재무제표, 손�
 ```
 trader-kr-scanner/      SKILL.md, scan.py
 trader-kr-news/         SKILL.md, news.py (관심 종목의 새 DART 공시, 시장 전체 ! 공시, 공시 원문)
+trader-kr-insider/      SKILL.md, insider.py (임원·주요주주 소유상황보고와 거래계획보고, 원문의 거래 줄)
 trader-kr-entry/        SKILL.md, entry.py
 trader-kr-exit/         SKILL.md, exit.py
 trader-kr-timemachine/  SKILL.md, timemachine.py
@@ -327,7 +330,7 @@ trader-kr-today/        SKILL.md, today.py (다른 스킬을 시각에 맞춰 �
 trader-kr-broker/       SKILL.md, broker.py (한국투자증권 모의투자 주문, 세 겹 승인)
 krcommon/               krx.py (시장 규칙), toss.py (토스증권 시세), tossacct.py (토스증권 계좌 읽기, GET 만),
                         bars.py (1분봉 캐시, 5분봉), data.py,
-                        dart.py (그날 공시), dartdoc.py (공시 원문, 개인 정보 가림), financials.py (DART 사업보고서 재무제표, 시가총액), krxdata.py (KRX 공식 일봉), kis.py (한국투자증권 모의투자), keys.py (키 등록), liquidity.py (호가창),
+                        dart.py (그날 공시), dartdoc.py (공시 원문, 개인 정보 가림), watch.py (관심 종목과 기간), financials.py (DART 사업보고서 재무제표, 시가총액), krxdata.py (KRX 공식 일봉), kis.py (한국투자증권 모의투자), keys.py (키 등록), liquidity.py (호가창),
                         doctor.py (연결 점검), demo.py (키 없이 8단계), synth.py (합성 1분봉)
 tests/                  unittest, 가짜 토스증권 서버
 .github/workflows/      tests.yml (시험과 데모, 키 없음)
@@ -337,8 +340,9 @@ LICENSES/               Apache-2.0.txt (논지 추적이 옮긴 원본의 라이
 
 ## In English
 
-A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): thirteen Claude skills
-for KOSPI/KOSDAQ day trades (scanner, DART filing alerts for the watchlist, entry timer, exit planner, Monte Carlo time machine, position sizing, risk check,
+A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): fourteen Claude skills
+for KOSPI/KOSDAQ day trades (scanner, DART filing alerts for the watchlist, officer and major-shareholder
+trade reports and 30-day-ahead trade plans read from the filings, entry timer, exit planner, Monte Carlo time machine, position sizing, risk check,
 a trade journal that measures plan adherence, a walk-forward strategy lab with Holm-corrected tests, and a
 one-call "today" skill that runs the right steps for the time of day and prints one card per candidate, a long-term
 lab that tests sixteen monthly-rebalanced strategies against a cap-weighted top-300 benchmark on survivorship-free KRX
