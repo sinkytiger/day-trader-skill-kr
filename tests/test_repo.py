@@ -8,12 +8,12 @@ from krcommon import krx
 
 SKILLS = ["trader-kr-scanner", "trader-kr-entry", "trader-kr-exit", "trader-kr-timemachine", "trader-kr-budget",
           "trader-kr-risk", "trader-kr-journal", "trader-kr-lab", "trader-kr-today", "trader-kr-broker",
-          "trader-kr-invest", "trader-kr-masters"]
+          "trader-kr-invest", "trader-kr-masters", "trader-kr-news"]
 SCRIPTS = {"trader-kr-scanner": "scan.py", "trader-kr-entry": "entry.py", "trader-kr-exit": "exit.py",
            "trader-kr-timemachine": "timemachine.py", "trader-kr-budget": "size.py", "trader-kr-risk": "check.py",
            "trader-kr-journal": "journal.py", "trader-kr-lab": "lab.py", "trader-kr-today": "today.py",
            "trader-kr-broker": "broker.py", "trader-kr-invest": "invest.py",
-           "trader-kr-masters": "masters.py"}
+           "trader-kr-masters": "masters.py", "trader-kr-news": "news.py"}
 
 
 def frontmatter(path):
