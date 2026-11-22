@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml/badge.svg)](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml)
 
-국내 주식(코스피·코스닥) 단타용 Claude 스킬 16종. 차트를 스캔하고, 관심 종목의 새 공시와 임원·주요주주의 매매 보고와 분기 실적을 알려 주고, 진입 순간을
+국내 주식(코스피·코스닥) 단타용 Claude 스킬 17종. 차트를 스캔하고, 관심 종목의 새 공시와 임원·주요주주의 매매 보고와 분기 실적을 알려 주고, 진입 순간을
 알려 주고, 손절가와 목표가를 먼저 정하고, 남은 장을 10,000번 다시 돌려 보고, 최대 손실에 맞춰 수량을 정하고, 한도를
 넘는 주문을 막는다. 그리고
 실제 거래를 일지에 적어 계획을 지켰는지 재고, 여러 규칙을 앞 기간에서 골라 뒤 기간에서 확인해 비용을 내고도 남는
@@ -41,7 +41,7 @@
 주문은 내지 않았습니다. 모의투자로 넣으려면 /trader-kr-broker (후보마다 yes), 직접 샀다면 가격·시각·수량을 알려 주면 일지에 적습니다.
 ```
 
-## 스킬 16종
+## 스킬 17종
 
 | 명령 | 이름 | 하는 일 |
 | --- | --- | --- |
@@ -53,6 +53,7 @@
 | `/trader-kr-entry` | 진입 타이머 | 5분봉이 시가 범위 고가 위에서 끝나는 순간을 알려 준다 |
 | `/trader-kr-exit` | 청산 계획 | 사기 전에 손절가와 목표가를 호가 단위로 정하고 비용 뺀 손익비를 보여 준다 |
 | `/trader-kr-alerts` | 가격 알림 | 계획의 손절가, 목표가, 정리 시각 알림을 한 번에 만들고, 지정한 가격, 기준가 대비 % 움직임, 시각, 개장을 한 번씩 알린다. 장 시간은 토스증권 장 운영 정보, 시세는 토스증권 현재가. 알림은 정보이고 주문은 `/trader-kr-broker` 만 낸다 |
+| `/trader-kr-notes` | 시장 노트 자료 | 24개 나라 ETF·원자재·국내 ETF 비교, 미국 관심 종목 주간 점검(SEC 새 공시, 최근 4개 분기 PER), 공부용 회사 20곳의 5년 재무제표(미국 SEC, 국내 DART, 네이버 실적과 대조), 공유용 공부 노트와 주식 기초편 예시 숫자를 JSON 으로 만들고 텔레그램으로 나에게 보낸다. 하나라도 못 읽으면 지난 숫자를 두고 멈춘다. 사라·팔라는 말은 하지 않는다 |
 | `/trader-kr-timemachine` | 타임머신 | 지난 60 거래일 5분봉으로 남은 장을 10,000번 재생하고 같은 규칙을 지난 거래일에 다시 적용한다 |
 | `/trader-kr-budget` | 수량 계산 | 수수료와 매도 거래세까지 넣은 최대 손실에 맞춰 몇 주 살지 정한다 |
 | `/trader-kr-risk` | 위험 점검 | 투자경고·VI·거래정지 종목, 시간 밖 진입, 한도 초과, 비용에 비해 작은 위험을 PASS / BLOCK 으로 가른다 |
@@ -83,6 +84,7 @@ today = scanner -> entry -> exit -> budget -> risk -> timemachine  (한마디로
 scanner -> entry -> exit -> timemachine -> budget -> risk      (거래 하나, 단계별로)
 news: check / market / read                                    (장 전, 스캐너 뒤, 진입 전. 새 공시와 원문)
 alerts: add --from-plan / check                               (계획 뒤, 거래가 열려 있는 동안 몇 분마다)
+notes: markets / us-watch / study / share / basics / tg send    (주말마다. 대시보드·공부 노트에 올릴 숫자, 텔레그램 알림)
 earnings: 종목코드 [--quarters 8]                              (실적 발표 전후, 하룻밤 들고 가기 전)
 insider: new / market --plans / show                           (임원·주요주주의 소유상황·거래계획 보고)
 journal: sync / open / close / holdings / report              (산 뒤, 판 뒤, 주말마다. sync 는 토스 체결 읽기)
@@ -321,6 +323,7 @@ GET 만 보내는지), 가짜 DART 공시와 사업보고서 재무제표, 손�
 trader-kr-scanner/      SKILL.md, scan.py
 trader-kr-news/         SKILL.md, news.py (관심 종목의 새 DART 공시, 시장 전체 ! 공시, 공시 원문)
 trader-kr-alerts/       SKILL.md, alerts.py (손절·목표·정리 시각, 가격, % 움직임, 시각, 개장 알림)
+trader-kr-notes/        SKILL.md, notes.py (markets, uswatch, study, share, basics, tg: 시장 노트 자료와 텔레그램 알림)
 trader-kr-earnings/     SKILL.md, earnings.py (분기 실적, 전년 같은 분기 대비, 4분기 계산, 다음 보고서 기한)
 trader-kr-insider/      SKILL.md, insider.py (임원·주요주주 소유상황보고와 거래계획보고, 원문의 거래 줄)
 trader-kr-entry/        SKILL.md, entry.py
@@ -349,8 +352,8 @@ LICENSES/               Apache-2.0.txt (논지 추적이 옮긴 원본의 라이
 
 ## In English
 
-A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): sixteen Claude skills
-for KOSPI/KOSDAQ day trades (scanner, price alerts for the plan's stop, target and flat-by time, DART filing alerts for the watchlist, officer and major-shareholder
+A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): seventeen Claude skills
+for KOSPI/KOSDAQ day trades (scanner, weekly market-note data with Telegram push, price alerts for the plan's stop, target and flat-by time, DART filing alerts for the watchlist, officer and major-shareholder
 trade reports and 30-day-ahead trade plans read from the filings, quarterly earnings from DART reports with
 year-over-year growth and a derived fourth quarter, entry timer, exit planner, Monte Carlo time machine, position sizing, risk check,
 a trade journal that measures plan adherence, a walk-forward strategy lab with Holm-corrected tests, and a

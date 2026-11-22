@@ -1,0 +1,32 @@
+{
+ "note": "예시 목록이다. 추천이 아니다. trader-kr/notes/us-watchlist.json 으로 복사해 종목을 직접 고른다. names 는 메시지에 쓸 이름, extra_cik 는 회사가 지주회사로 바뀌어 옛 공시 번호를 함께 읽어야 할 때.",
+ "tickers": [
+  "MSFT",
+  "AAPL",
+  "NVDA",
+  "LLY",
+  "META",
+  "V",
+  "TJX",
+  "MA",
+  "LRCX",
+  "XOM"
+ ],
+ "names": {
+  "MSFT": "마이크로소프트",
+  "AAPL": "애플",
+  "NVDA": "엔비디아",
+  "LLY": "일라이 릴리",
+  "META": "메타",
+  "V": "비자",
+  "TJX": "TJX",
+  "MA": "마스터카드",
+  "LRCX": "램리서치",
+  "XOM": "엑슨모빌"
+ },
+ "extra_cik": {
+  "XOM": [
+   "0000034088"
+  ]
+ }
+}
