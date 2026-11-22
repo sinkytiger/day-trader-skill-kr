@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml/badge.svg)](https://github.com/sinkytiger/day-trader-skill-kr/actions/workflows/tests.yml)
 
-국내 주식(코스피·코스닥) 단타용 Claude 스킬 15종. 차트를 스캔하고, 관심 종목의 새 공시와 임원·주요주주의 매매 보고와 분기 실적을 알려 주고, 진입 순간을
+국내 주식(코스피·코스닥) 단타용 Claude 스킬 16종. 차트를 스캔하고, 관심 종목의 새 공시와 임원·주요주주의 매매 보고와 분기 실적을 알려 주고, 진입 순간을
 알려 주고, 손절가와 목표가를 먼저 정하고, 남은 장을 10,000번 다시 돌려 보고, 최대 손실에 맞춰 수량을 정하고, 한도를
 넘는 주문을 막는다. 그리고
 실제 거래를 일지에 적어 계획을 지켰는지 재고, 여러 규칙을 앞 기간에서 골라 뒤 기간에서 확인해 비용을 내고도 남는
@@ -41,7 +41,7 @@
 주문은 내지 않았습니다. 모의투자로 넣으려면 /trader-kr-broker (후보마다 yes), 직접 샀다면 가격·시각·수량을 알려 주면 일지에 적습니다.
 ```
 
-## 스킬 15종
+## 스킬 16종
 
 | 명령 | 이름 | 하는 일 |
 | --- | --- | --- |
@@ -52,6 +52,7 @@
 | `/trader-kr-earnings` | 실적 요약 | DART 분기·반기·사업보고서로 분기마다 매출, 영업이익, 순이익, EPS 를 전년 같은 분기와 견준다. 4분기는 사업보고서에서 3분기 누적을 뺀 계산값으로 표시하고, 일회성 이익, 정기보고서보다 새 잠정실적, 다음 보고서의 법정 기한을 알려 준다 |
 | `/trader-kr-entry` | 진입 타이머 | 5분봉이 시가 범위 고가 위에서 끝나는 순간을 알려 준다 |
 | `/trader-kr-exit` | 청산 계획 | 사기 전에 손절가와 목표가를 호가 단위로 정하고 비용 뺀 손익비를 보여 준다 |
+| `/trader-kr-alerts` | 가격 알림 | 계획의 손절가, 목표가, 정리 시각 알림을 한 번에 만들고, 지정한 가격, 기준가 대비 % 움직임, 시각, 개장을 한 번씩 알린다. 장 시간은 토스증권 장 운영 정보, 시세는 토스증권 현재가. 알림은 정보이고 주문은 `/trader-kr-broker` 만 낸다 |
 | `/trader-kr-timemachine` | 타임머신 | 지난 60 거래일 5분봉으로 남은 장을 10,000번 재생하고 같은 규칙을 지난 거래일에 다시 적용한다 |
 | `/trader-kr-budget` | 수량 계산 | 수수료와 매도 거래세까지 넣은 최대 손실에 맞춰 몇 주 살지 정한다 |
 | `/trader-kr-risk` | 위험 점검 | 투자경고·VI·거래정지 종목, 시간 밖 진입, 한도 초과, 비용에 비해 작은 위험을 PASS / BLOCK 으로 가른다 |
@@ -69,9 +70,9 @@
 부르지 않으며, 파일을 직접 고치지 않는다 (도구는 Bash, Read, Glob, Grep). 논지가 없으면 대신 만들지 않는다.
 DART 키와 KRX 키가 필요하다. 파일은 `agents/trader-kr-analyst.md`.
 
-원본의 뉴스는 DART 공시 알림 (`/trader-kr-news`) 으로, 의원 매매 공시는 임원·주요주주 보고 (`/trader-kr-insider`) 로
-옮겼다. 실적 요약은 DART 분기·반기·사업보고서 (`/trader-kr-earnings`) 로 옮겼다. 가격 알림은 아직 옮기지 않았다.
-주문 실행은 아래 "주문 (모의투자)" 를 보라.
+원본의 열한 스킬은 모두 옮겼다. 뉴스는 DART 공시 알림 (`/trader-kr-news`), 의원 매매 공시는 임원·주요주주 보고
+(`/trader-kr-insider`), 실적 요약은 DART 분기·반기·사업보고서 (`/trader-kr-earnings`), 가격 알림은 토스증권 시세와
+장 운영 정보 (`/trader-kr-alerts`) 로 바꿨다. 주문 실행은 아래 "주문 (모의투자)" 를 보라.
 
 ## 흐름
 
@@ -81,6 +82,7 @@ DART 키와 KRX 키가 필요하다. 파일은 `agents/trader-kr-analyst.md`.
 today = scanner -> entry -> exit -> budget -> risk -> timemachine  (한마디로, 후보 여러 개)
 scanner -> entry -> exit -> timemachine -> budget -> risk      (거래 하나, 단계별로)
 news: check / market / read                                    (장 전, 스캐너 뒤, 진입 전. 새 공시와 원문)
+alerts: add --from-plan / check                               (계획 뒤, 거래가 열려 있는 동안 몇 분마다)
 earnings: 종목코드 [--quarters 8]                              (실적 발표 전후, 하룻밤 들고 가기 전)
 insider: new / market --plans / show                           (임원·주요주주의 소유상황·거래계획 보고)
 journal: sync / open / close / holdings / report              (산 뒤, 판 뒤, 주말마다. sync 는 토스 체결 읽기)
@@ -225,6 +227,7 @@ KRX 응답이 한 번에 몇 초씩 걸려서 날짜 여섯 개씩 동시에 받
 | 체결 비용 | 없음 | 토스 호가창으로 시장가 평균 체결가, 중간가 절약, 손절 때 밀림을 재서 수량과 최대 손실에 넣음 |
 | 비용 필터 | 없음 | 손절 때 비용과 밀림이 주당 위험의 30% 를 넘는 거래를 막음 |
 | 기록과 검증 | 없음 | 거래 일지, 워크포워드 전략 검증 실험실 |
+| 가격 알림 | NYSE 시계와 휴일 목록, Yahoo·Stooq 시세 | 토스증권 장 운영 정보와 현재가. 기준가 대비 % 는 상·하한가의 가운데(기준가) 와 견줌 |
 | 실적 | SEC XBRL (10-Q, 10-K), 8-K 보도자료 | DART 분기·반기·사업보고서 재무제표, 잠정실적 공시. 4분기는 연간 - 3분기 누적 |
 | 내부자 매매 | 하원의원 거래 보고 (PTR, 45일 안) | 임원·주요주주 소유상황보고 (결제일부터 5일 안) 와 거래계획보고 (30일 전) |
 | 주문 | Alpaca, IBKR (모의계좌 기본, 손절·목표는 브래킷 주문) | 한국투자증권 모의투자만. 목표가는 지정가로 걸고, 손절은 watch 가 지켜보다 시장가로 |
@@ -317,6 +320,7 @@ GET 만 보내는지), 가짜 DART 공시와 사업보고서 재무제표, 손�
 ```
 trader-kr-scanner/      SKILL.md, scan.py
 trader-kr-news/         SKILL.md, news.py (관심 종목의 새 DART 공시, 시장 전체 ! 공시, 공시 원문)
+trader-kr-alerts/       SKILL.md, alerts.py (손절·목표·정리 시각, 가격, % 움직임, 시각, 개장 알림)
 trader-kr-earnings/     SKILL.md, earnings.py (분기 실적, 전년 같은 분기 대비, 4분기 계산, 다음 보고서 기한)
 trader-kr-insider/      SKILL.md, insider.py (임원·주요주주 소유상황보고와 거래계획보고, 원문의 거래 줄)
 trader-kr-entry/        SKILL.md, entry.py
@@ -345,8 +349,8 @@ LICENSES/               Apache-2.0.txt (논지 추적이 옮긴 원본의 라이
 
 ## In English
 
-A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): fifteen Claude skills
-for KOSPI/KOSDAQ day trades (scanner, DART filing alerts for the watchlist, officer and major-shareholder
+A Korean-market port of [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) (MIT): sixteen Claude skills
+for KOSPI/KOSDAQ day trades (scanner, price alerts for the plan's stop, target and flat-by time, DART filing alerts for the watchlist, officer and major-shareholder
 trade reports and 30-day-ahead trade plans read from the filings, quarterly earnings from DART reports with
 year-over-year growth and a derived fourth quarter, entry timer, exit planner, Monte Carlo time machine, position sizing, risk check,
 a trade journal that measures plan adherence, a walk-forward strategy lab with Holm-corrected tests, and a
