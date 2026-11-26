@@ -267,6 +267,26 @@ KRX 응답이 한 번에 몇 초씩 걸려서 날짜 여섯 개씩 동시에 받
 `python krcommon/keys.py kis` (앱키·앱시크릿·계좌번호를 숨김 입력, `~/.kis/credentials.json`), `python krcommon/keys.py kis --check`
 (잔고를 한 번 조회). 토큰은 하루 쓰고 1분에 한 번만 발급되며 발급 때 알림톡이 가서 `~/.kis/token.json` 에 저장해 다시 쓴다.
 
+세 번째 문인 도구 승인 카드는 Claude Code 권한 설정에 달려 있다. 명령을 늘 허용해 두면 카드가 뜨지 않으므로, 사용자가
+본인 설정 파일(`~/.claude/settings.json` 또는 이 프로젝트의 `.claude/settings.json`)에 아래 `ask` 규칙 두 줄을 넣는다.
+플러그인은 권한 규칙을 함께 실어 보낼 수 없어서 사용자가 직접 넣어야 한다.
+
+```json
+{
+  "permissions": {
+    "ask": [
+      "Bash(*broker.py* place *)",
+      "Bash(*broker.py* flatten *)"
+    ]
+  }
+}
+```
+
+Claude Code 는 deny, ask, allow 순서로 규칙을 보므로 넓은 `allow` 규칙(예: `Bash(python *)`)이 있어도 이 두 명령은 묻는다.
+자동 모드와 권한 건너뛰기 모드(bypassPermissions)에서도 묻고, `cd 폴더 && python ... place` 처럼 이어 붙인 명령도 잡는다.
+묻지 않는 모드(dontAsk)에서는 묻는 대신 거절한다. 이 두 명령은 `allow` 에 넣지 않는다.
+(Claude Code 권한 문서 code.claude.com/docs/en/permissions, permission-modes 로 2026-11-25 확인.)
+
 ## 토스증권 계좌 읽기 (일지)
 
 토스증권 앱에서 직접 사고판 거래를 일지에 옮겨 적는다. 주문은 사용자가 앱에서 내고, 이 팩은 계좌를 읽기만 한다.
@@ -368,7 +388,7 @@ DART annual reports as they were filed at the time (rebalanced each April), can 
 after the lock, and `implied.py` backs out what today's market cap assumes (multiple bands, reverse DCF, required ROE);
 none of it prints what to buy. It adds KRX session hours (continuous trading 09:00 to 15:20), tick sizes,
 the ±30% price limits, transaction tax and fees in every loss and reward:risk figure, and blocks on exchange warnings,
-volatility interruptions and trading halts. Orders go only to the KIS paper-trading server, after a risk-check PASS, a "yes" in chat and a tool approval; no script calls a live account or Toss order endpoints. The journal can read the user's own Toss account (holdings and order history, GET only) to log fills placed in the Toss app. Tests run
+volatility interruptions and trading halts. Orders go only to the KIS paper-trading server, after a risk-check PASS, a "yes" in chat and a tool approval (the user keeps that prompt on with two `ask` permission rules, see 주문 (모의투자)); no script calls a live account or Toss order endpoints. The journal can read the user's own Toss account (holdings and order history, GET only) to log fills placed in the Toss app. Tests run
 offline on synthetic data, because Toss data may only be used for the account holder's own trading.
 To see all eight steps without any keys, run `python krcommon/demo.py` (synthetic data, no network, about 5 seconds).
 

@@ -45,6 +45,10 @@ python "${CLAUDE_SKILL_DIR}/broker.py" log                                    # 
 4. `python krcommon/keys.py kis --check` 로 잔고를 한 번 조회해 확인한다. 토큰을 처음 받을 때 한국투자증권
    알림톡이 간다. 토큰은 하루 쓰고 1분에 한 번만 발급되어 `~/.kis/token.json` 에 저장해 다시 쓴다.
 5. 보내도 된다고 정했으면 사용자가 `trader-kr/config.json` 에 `"send_orders": true` 를 넣는다.
+6. 세 번째 문(도구 승인 카드)이 늘 뜨도록 사용자가 Claude Code 설정(`~/.claude/settings.json` 또는 프로젝트의
+   `.claude/settings.json`)의 `permissions.ask` 에 `"Bash(*broker.py* place *)"` 와 `"Bash(*broker.py* flatten *)"` 를
+   넣는다. ask 규칙은 allow 규칙보다 먼저 보고, 자동 모드와 권한 건너뛰기 모드에서도 묻는다. 이 두 명령은 `allow` 에
+   넣지 않는다. 플러그인은 권한 규칙을 실어 보낼 수 없어서 사용자가 직접 넣는다 (README "주문 (모의투자)").
 
 ## 읽고 쓰는 것
 
@@ -104,6 +108,7 @@ python "${CLAUDE_SKILL_DIR}/broker.py" log                                    # 
 - 예약 작업이나 백그라운드에서 새 매수를 내지 않는다. watch 는 이미 yes 를 받은 포지션을 정리하는 매도만 한다.
 - 실전 계좌, 미수, 신용, 공매도를 쓰지 않는다. 실전 서버 주소는 이 저장소에 없다.
 - `send_orders` 를 대신 true 로 바꾸지 않는다. 키를 묻거나 읽거나 되풀이하지 않는다.
+- 권한 설정의 ask 규칙을 지우거나, place·flatten 명령을 allow 에 넣지 않는다. 사용자가 그러자고 해도 README 의 안내를 보여 주고 사용자가 직접 하게 한다.
 - 체결 가격을 약속하지 않는다. 시장가와 손절은 그때 시장이 주는 가격에 체결된다.
 
 ## 안전
